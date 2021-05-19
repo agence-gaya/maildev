@@ -64,6 +64,10 @@ module.exports = function (config) {
     mailserver.setAutoRelayMode(true, config.autoRelayRules, emailAddress)
   }
 
+  if (config.autoDelete) {
+    mailserver.setAutoDelete(config.autoDelete)
+  }
+
   if (config.mailDirectory) {
     mailserver.loadMailsFromDirectory()
   }

@@ -46,6 +46,7 @@ Usage: maildev [options]
 | `--outgoing-secure`              | `MAILDEV_OUTGOING_SECURE`  | Use SMTP SSL for outgoing mail                                                            |
 | `--auto-relay [email]`           | `MAILDEV_AUTO_RELAY`       | Use auto-relay mode. Optional relay email address                                         |
 | `--auto-relay-rules <file>`      | `MAILDEV_AUTO_RELAY_RULES` | Filter rules for auto relay mode                                                          |
+| `--auto-delete <delay>`          | `MAILDEV_AUTO_DELETE`      | Delete mail after specified delay in hours                                                |
 | `--incoming-user <user>`         | `MAILDEV_INCOMING_USER`    | SMTP user for incoming mail                                                               |
 | `--incoming-pass <pass>`         | `MAILDEV_INCOMING_PASS`    | SMTP password for incoming mail                                                           |
 | `--incoming-secure`              | `MAILDEV_INCOMING_SECURE`  | Use SMTP SSL for incoming emails                                                          |
