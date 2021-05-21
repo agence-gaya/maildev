@@ -130,6 +130,9 @@
                                 <a href="#/email/{{item.id}}" class="email-item-link">
                                     <span class="title">
                                         {{item.subject}}<span ng-hide="!item.attachments">&nbsp;<i class="fas fa-paperclip" ></i></span>
+                                        <span class="title-subline" title="{{item.from}}">
+                                            From:&nbsp;{{item.from.0.address}}
+                                        </span>
                                         <span class="title-subline" title="{{item.to}}">
                                             To:&nbsp;{{item.to.0.address}}&nbsp;<span ng-if="item.to.length > 1">+{{item.to.length-1}}</span>
                                         </span>
