@@ -34,6 +34,7 @@ module.exports = function (config) {
     config.smtp,
     config.ip,
     config.mailDirectory,
+    config.virtualHost,
     config.incomingUser,
     config.incomingPass,
     config.hideExtensions,
