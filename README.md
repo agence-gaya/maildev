@@ -52,6 +52,8 @@ Usage: maildev [options]
 | `--incoming-secure`              | `MAILDEV_INCOMING_SECURE`  | Use SMTP SSL for incoming emails                                                          |
 | `--incoming-cert <path>`         | `MAILDEV_INCOMING_CERT`    | Cert file location for incoming SSL                                                       |
 | `--incoming-key <path>`          | `MAILDEV_INCOMING_KEY`     | Key file location for incoming SSL                                                        |
+| `--virtual-host`                 | `MAILDEV_VIRTUAL_HOST`       | Enable virtual host
+| `--domain-filter-rules <file>`   | `MAILDEV_DOMAIN_FILTER_RULES`| Filter client by HELO/EHLO domain
 | `--web-ip <ip address>`          | `MAILDEV_WEB_IP`           | IP Address to bind HTTP service to, defaults to --ip                                      |
 | `--web-user <user>`              | `MAILDEV_WEB_USER`         | HTTP user for GUI                                                                         |
 | `--web-pass <password>`          | `MAILDEV_WEB_PASS`         | HTTP password for GUI                                                                     |
