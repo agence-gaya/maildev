@@ -1,5 +1,5 @@
 # Base
-FROM node:18-alpine as base
+FROM node:18-alpine AS base
 ENV NODE_ENV production
 
 # Build
@@ -11,7 +11,7 @@ RUN npm install \
   && npm cache clean --force
 
 # Prod
-FROM base as prod
+FROM base AS prod
 USER node
 WORKDIR /home/node
 COPY --chown=node:node . /home/node
