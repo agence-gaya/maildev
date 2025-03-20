@@ -1,11 +1,11 @@
 # Base
-FROM node:18-alpine as base
+FROM node:18-alpine AS base
 RUN apk add --no-cache tzdata
 ENV NODE_ENV production
 ENV TZ UTC
 
 # Build
-FROM base as build
+FROM base AS build
 WORKDIR /root
 COPY package*.json ./
 RUN npm install \
@@ -13,7 +13,7 @@ RUN npm install \
   && npm cache clean --force
 
 # Prod
-FROM base as prod
+FROM base AS prod
 USER node
 WORKDIR /home/node
 COPY --chown=node:node . /home/node

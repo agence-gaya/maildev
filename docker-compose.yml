@@ -1,7 +1,4 @@
-version: '3'
-
 services:
-
   maildev:
     image: maildev/maildev
     restart: always
