@@ -127,6 +127,11 @@ describe('EmailList', () => {
     expect(screen.queryByText('Message 60')).toBeNull()
   })
 
+  it('should show the sender in the list preview', async () => {
+    renderList()
+    expect(await screen.findByText('From: Sender 119 <sender119@example.com>')).toBeTruthy()
+  })
+
   it('should request a bounded page rather than the whole inbox', async () => {
     renderList()
     await screen.findByText('Message 119')

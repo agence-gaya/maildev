@@ -15,6 +15,9 @@ export function EmailListItem({ email }: EmailListItemProps) {
   const toName = email.to?.[0]?.name
   const extraRecipients = Math.max((email.to?.length ?? 0) - 1, 0)
   const hasAttachments = email.attachmentCount > 0
+  const fromDisplay = (email.from ?? [])
+    .map((from) => from.name ? `${from.name} <${from.address}>` : from.address)
+    .join(', ') || 'unknown'
 
   return (
     <button
@@ -82,6 +85,10 @@ export function EmailListItem({ email }: EmailListItemProps) {
               {formatDate(email.time)}
             </span>
           </div>
+
+          <p className="truncate text-xs text-[hsl(var(--muted-foreground))]" title={fromDisplay}>
+            From: {fromDisplay}
+          </p>
 
           <div className="flex items-center gap-1">
             <span
