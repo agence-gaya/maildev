@@ -23,6 +23,8 @@ export interface APIServerOptions {
   httpsKey?: string
   /** Storage backend for emails */
   storage: Storage
+  /** Resolve inboxes from the HTTP Host header */
+  virtualHost?: boolean
   /** SMTP server instance for events (optional) */
   smtp?: SMTPServer
   /** Authentication configuration */

@@ -232,6 +232,15 @@ export interface MailDevConfig {
    */
   autoRelay?: boolean | string
 
+  /** Maximum age of retained emails in hours (0 disables automatic deletion) */
+  autoDelete?: number
+
+  /** Path to domain-filter rules JSON */
+  domainFilterRules?: string
+
+  /** Isolate inboxes by SMTP EHLO name and HTTP Host */
+  virtualHost?: boolean
+
   /**
    * Path to auto-relay rules file
    * CLI: --auto-relay-rules <file>
@@ -332,11 +341,14 @@ export interface CLIOptions {
   outgoingSecure?: boolean
   autoRelay?: boolean | string
   autoRelayRules?: string
+  autoDelete?: string
+  domainFilterRules?: string
   mailDirectory?: string
   maxEmails?: string
   verbose?: boolean
   silent?: boolean
   logMailContents?: boolean
   mcp?: boolean
+  virtualHost?: boolean
   config?: string
 }

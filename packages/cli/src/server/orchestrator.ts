@@ -7,8 +7,8 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
-import { MemoryStorage, FileStorage, type Storage } from '@maildev/core'
-import { createSMTPServer, type SMTPServer, type RelayConfig, type AutoRelayConfig, type RelayRule } from '@maildev/smtp'
+import { MemoryStorage, FileStorage, VirtualHostStorage, type Storage } from '@maildev/core'
+import { createSMTPServer, type SMTPServer, type RelayConfig, type AutoRelayConfig, type RelayRule, type DomainFilterRule } from '@maildev/smtp'
 import { createAPIServer, type APIServer } from '@maildev/api'
 import { registerUI } from '@maildev/ui/server'
 import type { MailDevConfig } from '../config/types.js'
@@ -72,6 +72,15 @@ export class Orchestrator {
       storage: this.storage,
       mailDir,
       logger: this.config.verbose ? this.createSmtpLogger() : false,
+    }
+    if (this.config.virtualHost) {
+      smtpOptions.virtualHost = true
+    }
+    if (this.config.autoDelete !== undefined) {
+      smtpOptions.autoDelete = this.config.autoDelete
+    }
+    if (this.config.domainFilterRules) {
+      smtpOptions.domainFilterRules = await this.getDomainFilterRules()
     }
     if (this.config.incomingSecure !== undefined) {
       smtpOptions.secure = this.config.incomingSecure
@@ -142,6 +151,13 @@ export class Orchestrator {
       this.logger.debug('Restored persisted emails from mail directory')
     }
 
+    if (this.config.autoDelete && this.config.autoDelete > 0) {
+      const deleted = await this.smtp.deleteOldEmails()
+      if (deleted > 0) {
+        this.logger.info(`Deleted ${deleted} email(s) older than ${this.config.autoDelete} hour(s)`)
+      }
+    }
+
     // 7. Set up email event handlers
     this.setupEmailHandlers()
 
@@ -156,6 +172,9 @@ export class Orchestrator {
         basePath,
         storage: this.storage,
         smtp: this.smtp,
+      }
+      if (this.config.virtualHost) {
+        apiOptions.virtualHost = true
       }
       const webAuth = this.getWebAuth()
       if (webAuth) {
@@ -257,6 +276,18 @@ export class Orchestrator {
   private async createStorage(): Promise<Storage> {
     const maxEmails = this.config.maxEmails
 
+    if (this.config.virtualHost) {
+      if (this.config.mailDirectory) {
+        this.logger.debug(`Using virtual-host file storage: ${this.config.mailDirectory}`)
+        return new VirtualHostStorage({
+          mailDirectory: this.config.mailDirectory,
+          maxEmails,
+        })
+      }
+      this.logger.debug('Using virtual-host in-memory storage')
+      return new VirtualHostStorage({ maxEmails })
+    }
+
     if (this.config.mailDirectory) {
       this.logger.debug(`Using file storage: ${this.config.mailDirectory}`)
       return new FileStorage({
@@ -340,6 +371,34 @@ export class Orchestrator {
     }
 
     return config
+  }
+
+  private async getDomainFilterRules(): Promise<DomainFilterRule[]> {
+    const path = this.config.domainFilterRules
+    if (!path) {
+      return []
+    }
+
+    try {
+      const content = await readFile(path, 'utf-8')
+      const rules: unknown = JSON.parse(content)
+      if (
+        !Array.isArray(rules) ||
+        rules.some(
+          (rule) =>
+            typeof rule !== 'object' ||
+            rule === null ||
+            (rule.allow !== undefined && typeof rule.allow !== 'string') ||
+            (rule.deny !== undefined && typeof rule.deny !== 'string')
+        )
+      ) {
+        throw new Error('Expected a JSON array of allow/deny rules')
+      }
+      return rules as DomainFilterRule[]
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`Failed to load domain filter rules: ${message}`)
+    }
   }
 
   /**

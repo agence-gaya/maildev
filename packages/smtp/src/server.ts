@@ -8,11 +8,11 @@ import { SMTPServer as SMTPServerLib } from 'smtp-server'
 import type { SMTPServerSession, SMTPServerDataStream } from 'smtp-server'
 import { EventEmitter } from 'node:events'
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs'
-import { rm, readdir, readFile, writeFile, stat } from 'node:fs/promises'
+import { mkdir, rm, readdir, readFile, writeFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { PassThrough, Transform, type Readable } from 'node:stream'
-import { formatBytes, calculateBcc, makeId, mapLimit, type Storage, type Email, type EmailMetadata, type Attachment } from '@maildev/core'
+import { formatBytes, calculateBcc, makeId, mapLimit, normalizeVirtualHost, type Storage, type Email, type EmailMetadata, type Attachment } from '@maildev/core'
 import { parseEmailStream, parseEmailBuffer } from './parser.js'
 import { createAuthCallback } from './auth.js'
 import { createLogger } from './logger.js'
@@ -25,6 +25,7 @@ import type {
   ParsedEmail,
   ParsedAttachment,
   HideableExtension,
+  DomainFilterRule,
   RelayConfig,
   AutoRelayConfig,
   Logger,
@@ -42,6 +43,19 @@ const FS_CONCURRENCY = 16
 
 /** How many emails to parse before saving them, when restoring from disk */
 const RESTORE_CHUNK_SIZE = 64
+const HOUR_MS = 60 * 60 * 1000
+
+function matchesDomainRules(host: string, rules: DomainFilterRule[]): boolean {
+  let result = true
+  for (const rule of rules) {
+    const pattern = rule.allow || rule.deny || ''
+    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')
+    if (new RegExp(`^${escaped}$`, 'i').test(host)) {
+      result = Boolean(rule.allow)
+    }
+  }
+  return result
+}
 
 /** An .eml file found in the mail directory */
 interface EmlFile {
@@ -73,6 +87,8 @@ export class SMTPServer extends EventEmitter {
   private logger: Logger
   private relayClient: RelayClient | null = null
   private unsubscribeEvict: () => void
+  private autoDeleteTimer: NodeJS.Timeout | null = null
+  private autoDeleteTask: Promise<number> | null = null
 
   constructor(options: SMTPServerOptions) {
     super()
@@ -88,13 +104,19 @@ export class SMTPServer extends EventEmitter {
     this.options = options
     this.logger = createLogger(options.logger)
 
+    if (options.virtualHost && !options.storage.forHost) {
+      throw new Error('Virtual host mode requires a host-aware storage backend')
+    }
+
     // Ensure mail directory exists
     this.ensureMailDir()
 
     // We wrote the .eml and attachments, so we clean them up when the store
     // drops an email to stay within its limit. Otherwise the store stays
     // bounded while the directory on disk grows forever.
-    this.unsubscribeEvict = this.storage.onEvicted((email) => this.removeEmailFiles(email.id))
+    this.unsubscribeEvict = this.storage.onEvicted((email) =>
+      this.removeEmailFiles(email.id, email.envelope.host)
+    )
   }
 
   /**
@@ -137,6 +159,7 @@ export class SMTPServer extends EventEmitter {
 
         const printHost = this.host === '::' ? 'localhost' : this.host
         this.logger.info(`SMTP Server running at ${printHost}:${this.port}`)
+        this.startAutoDelete()
         resolve()
       })
     })
@@ -166,6 +189,12 @@ export class SMTPServer extends EventEmitter {
    */
   async stop(): Promise<void> {
     this.emit('close')
+
+    if (this.autoDeleteTimer) {
+      clearInterval(this.autoDeleteTimer)
+      this.autoDeleteTimer = null
+    }
+    await this.autoDeleteTask
 
     this.unsubscribeEvict()
 
@@ -227,8 +256,8 @@ export class SMTPServer extends EventEmitter {
   /**
    * Get an email by ID
    */
-  async getEmail(id: string): Promise<Email> {
-    const email = await this.storage.getById(id)
+  async getEmail(id: string, host?: string): Promise<Email> {
+    const email = await this.storageForHost(host).getById(id)
     if (!email) {
       throw new Error('Email was not found')
     }
@@ -247,8 +276,12 @@ export class SMTPServer extends EventEmitter {
   /**
    * Get an email's HTML content with embedded attachments resolved
    */
-  async getEmailHtml(id: string, options: HTMLRenderOptions = {}): Promise<string | undefined> {
-    const email = await this.getEmail(id)
+  async getEmailHtml(
+    id: string,
+    options: HTMLRenderOptions = {},
+    host?: string
+  ): Promise<string | undefined> {
+    const email = await this.getEmail(id, host)
 
     if (!email.html) {
       return undefined
@@ -267,41 +300,45 @@ export class SMTPServer extends EventEmitter {
   /**
    * Get a readable stream of the raw .eml file
    */
-  async getRawEmail(id: string): Promise<Readable> {
-    const email = await this.getEmail(id)
-    return createReadStream(join(this.mailDir, `${email.id}.eml`))
+  async getRawEmail(id: string, host?: string): Promise<Readable> {
+    const email = await this.getEmail(id, host)
+    return createReadStream(join(this.mailDirectoryForHost(email.envelope.host ?? host), `${email.id}.eml`))
   }
 
   /**
    * Get all emails
    */
-  async getAllEmails(): Promise<Email[]> {
-    return this.storage.getAll()
+  async getAllEmails(host?: string): Promise<Email[]> {
+    return this.storageForHost(host).getAll()
   }
 
   /**
    * Mark all emails as read
    */
-  async markAllRead(): Promise<number> {
-    return this.storage.markAllRead()
+  async markAllRead(host?: string): Promise<number> {
+    return this.storageForHost(host).markAllRead()
   }
 
   /**
    * Delete an email by ID
    */
-  async deleteEmail(id: string): Promise<boolean> {
-    const email = await this.storage.getById(id)
+  async deleteEmail(id: string, host?: string): Promise<boolean> {
+    const storage = this.storageForHost(host)
+    const email = await storage.getById(id)
     if (!email) {
       throw new Error('Email not found')
     }
 
-    await this.removeEmailFiles(id)
+    await this.removeEmailFiles(id, email.envelope.host ?? host)
 
     this.logger.warn('Deleting email -', email.subject)
 
-    const result = await this.storage.delete(id)
+    const result = await storage.delete(id)
     if (result) {
-      this.emit('delete', { id })
+      this.emit('delete', {
+        id,
+        ...(this.options.virtualHost ? { host: normalizeVirtualHost(email.envelope.host ?? host) } : {}),
+      })
     }
 
     return result
@@ -310,13 +347,16 @@ export class SMTPServer extends EventEmitter {
   /**
    * Delete all emails
    */
-  async deleteAllEmails(): Promise<number> {
+  async deleteAllEmails(host?: string): Promise<number> {
     this.logger.warn('Deleting all emails')
 
-    await this.clearMailDir()
-    const count = await this.storage.deleteAll()
+    await this.clearMailDir(host)
+    const count = await this.storageForHost(host).deleteAll()
 
-    this.emit('delete', { id: 'all' })
+    this.emit('delete', {
+      id: 'all',
+      ...(this.options.virtualHost ? { host: normalizeVirtualHost(host) } : {}),
+    })
 
     return count
   }
@@ -326,9 +366,10 @@ export class SMTPServer extends EventEmitter {
    */
   async getEmailAttachment(
     id: string,
-    filename: string
+    filename: string,
+    host?: string
   ): Promise<{ contentType: string; stream: Readable }> {
-    const email = await this.getEmail(id)
+    const email = await this.getEmail(id, host)
 
     if (!email.attachments || email.attachments.length === 0) {
       throw new Error('Email has no attachments')
@@ -353,7 +394,11 @@ export class SMTPServer extends EventEmitter {
       transformed: true,
     }
 
-    const filePath = getAttachmentFilePath(this.mailDir, id, transformedAttachment)
+    const filePath = getAttachmentFilePath(
+      this.mailDirectoryForHost(email.envelope.host ?? host),
+      id,
+      transformedAttachment
+    )
     const stream = createReadStream(filePath)
 
     return {
@@ -365,29 +410,29 @@ export class SMTPServer extends EventEmitter {
   /**
    * Download an email as .eml file
    */
-  async downloadEmail(id: string): Promise<EmailDownload> {
-    await this.getEmail(id) // Verify email exists
+  async downloadEmail(id: string, host?: string): Promise<EmailDownload> {
+    const email = await this.getEmail(id, host) // Verify email exists
 
     return {
       contentType: 'message/rfc822',
       filename: `${id}.eml`,
-      stream: createReadStream(join(this.mailDir, `${id}.eml`)),
+      stream: createReadStream(join(this.mailDirectoryForHost(email.envelope.host ?? host), `${id}.eml`)),
     }
   }
 
   /**
    * Relay an email to the configured outgoing server
    */
-  async relayEmail(idOrEmail: string | Email, isAutoRelay = false): Promise<void> {
+  async relayEmail(idOrEmail: string | Email, isAutoRelay = false, host?: string): Promise<void> {
     if (!this.relayClient) {
       throw new Error('Outgoing mail not configured')
     }
 
     const email = typeof idOrEmail === 'string'
-      ? await this.getEmail(idOrEmail)
+      ? await this.getEmail(idOrEmail, host)
       : idOrEmail
 
-    const rawStream = await this.getRawEmail(email.id)
+    const rawStream = await this.getRawEmail(email.id, email.envelope.host)
     const result = await this.relayClient.relay(email, rawStream, isAutoRelay)
 
     if (!result.success) {
@@ -399,13 +444,14 @@ export class SMTPServer extends EventEmitter {
 
     // Record the successful relay on the stored email so the API and UI can
     // tell whether (and where) a message was delivered.
-    const storedEmail = await this.storage.getById(email.id)
+    const storage = this.storageForHost(email.envelope.host)
+    const storedEmail = await storage.getById(email.id)
     if (!storedEmail) {
       return
     }
     storedEmail.relayedAt = new Date()
     storedEmail.relayedTo = result.recipients ?? []
-    await this.storage.save(storedEmail)
+    await storage.save(storedEmail)
   }
 
   /**
@@ -415,21 +461,45 @@ export class SMTPServer extends EventEmitter {
    * that has accumulated tens of thousands of messages would otherwise stall
    * startup and immediately blow past the store's limit anyway.
    */
-  async loadMailsFromDirectory(): Promise<void> {
+  async loadMailsFromDirectory(host?: string): Promise<void> {
+    const hosts = this.options.virtualHost
+      ? host
+        ? [normalizeVirtualHost(host)]
+        : await this.storage.getHosts?.() ?? []
+      : [undefined]
+
+    for (const currentHost of hosts) {
+      const storage = this.storageForHost(currentHost)
+      if (this.options.virtualHost) {
+        await storage.initialize()
+      }
+      await this.restoreMailDirectory(
+        this.mailDirectoryForHost(currentHost),
+        currentHost,
+        storage
+      )
+    }
+  }
+
+  private async restoreMailDirectory(
+    mailDir: string,
+    host: string | undefined,
+    storage: Storage
+  ): Promise<void> {
     let files: EmlFile[]
     try {
-      files = await this.listEmlFiles()
+      files = await this.listEmlFiles(mailDir)
     } catch (err) {
-      this.logger.error('Error reading mail directory:', err)
+      this.logger.error('Error reading mail directory:', mailDir, err)
       return
     }
 
-    const max = this.storage.options.maxEmails ?? 0
+    const max = storage.options.maxEmails ?? 0
     const selected = max > 0 ? files.slice(0, max) : files
 
     if (selected.length < files.length) {
       this.logger.warn(
-        `Restoring the ${selected.length} most recent of ${files.length} emails in ${this.mailDir}`
+        `Restoring the ${selected.length} most recent of ${files.length} emails in ${mailDir}`
       )
     }
 
@@ -447,7 +517,7 @@ export class SMTPServer extends EventEmitter {
 
       const parsedChunk = await mapLimit(chunk, FS_CONCURRENCY, async (file) => {
         try {
-          const data = await readFile(join(this.mailDir, `${file.id}.eml`), 'utf8')
+          const data = await readFile(join(mailDir, `${file.id}.eml`), 'utf8')
           this.logger.log('Restoring email:', file.id)
           return { id: file.id, parsed: await parseEmailBuffer(data) }
         } catch (err) {
@@ -467,14 +537,14 @@ export class SMTPServer extends EventEmitter {
         const envelope: StoredEnvelope = {
           from: parsed.from?.[0] ? { address: parsed.from[0].address } : false,
           to: (parsed.to || []).map((addr) => ({ address: addr.address })),
-          host: 'restored',
+          host: host ?? 'restored',
           remoteAddress: 'restored',
         }
 
         try {
           // Restore any metadata persisted alongside the .eml.
-          const metadata = await this.storage.readMetadata?.(id)
-          await this.saveEmail(id, envelope, parsed, true, metadata)
+          const metadata = await storage.readMetadata?.(id)
+          await this.saveEmail(id, envelope, parsed, true, metadata, storage)
         } catch (err) {
           this.logger.error(`Error restoring email ${id}:`, err)
         }
@@ -496,9 +566,69 @@ export class SMTPServer extends EventEmitter {
       return 0
     }
 
+    if (this.options.virtualHost) {
+      const hosts = await this.storage.getHosts?.() ?? []
+      let removed = 0
+      for (const host of hosts) {
+        removed += await this.pruneMailDirectory(this.mailDirectoryForHost(host), keep)
+      }
+      return removed
+    }
+
+    return this.pruneMailDirectory(this.mailDir, keep)
+  }
+
+  /** Delete emails whose received time is older than the configured age */
+  async deleteOldEmails(maxAgeHours = this.options.autoDelete ?? 0): Promise<number> {
+    if (maxAgeHours <= 0) {
+      return 0
+    }
+    if (this.autoDeleteTask) {
+      return this.autoDeleteTask
+    }
+
+    const task = (async () => {
+      const cutoff = Date.now() - maxAgeHours * HOUR_MS
+      const hosts = this.options.virtualHost
+        ? await this.storage.getHosts?.() ?? []
+        : [undefined]
+      let deleted = 0
+
+      for (const host of hosts) {
+        const storage = this.storageForHost(host)
+        const emails = await storage.getAll()
+        for (const email of emails) {
+          const receivedAt = new Date(email.time).getTime()
+          if (Number.isFinite(receivedAt) && receivedAt < cutoff) {
+            try {
+              if (await this.deleteEmail(email.id, host)) {
+                deleted++
+              }
+            } catch (error) {
+              this.logger.warn(`Unable to delete expired email ${email.id}:`, error)
+            }
+          }
+        }
+      }
+
+      return deleted
+    })()
+
+    this.autoDeleteTask = task
+    try {
+      return await task
+    } finally {
+      if (this.autoDeleteTask === task) {
+        this.autoDeleteTask = null
+      }
+    }
+  }
+
+  private async pruneMailDirectory(mailDir: string, keep: number): Promise<number> {
+
     let files: EmlFile[]
     try {
-      files = await this.listEmlFiles()
+      files = await this.listEmlFiles(mailDir)
     } catch (err) {
       this.logger.error('Error reading mail directory:', err)
       return 0
@@ -509,10 +639,10 @@ export class SMTPServer extends EventEmitter {
     }
 
     const stale = files.slice(keep)
-    await mapLimit(stale, FS_CONCURRENCY, (file) => this.removeEmailFiles(file.id))
+    await mapLimit(stale, FS_CONCURRENCY, (file) => this.removeEmailFiles(file.id, undefined, mailDir))
 
     this.logger.warn(
-      `Removed ${stale.length} old email(s) from ${this.mailDir} (keeping the newest ${keep})`
+        `Removed ${stale.length} old email(s) from ${mailDir} (keeping the newest ${keep})`
     )
 
     return stale.length
@@ -558,7 +688,37 @@ export class SMTPServer extends EventEmitter {
       Object.assign(config, hideOptions)
     }
 
+    if (this.options.domainFilterRules) {
+      config.onMailFrom = (
+        _address: EnvelopeAddress,
+        session: SMTPServerSession,
+        callback: (error?: Error | null) => void
+      ) => {
+        const ehlo = session.hostNameAppearsAs
+        if (!ehlo || !matchesDomainRules(ehlo, this.options.domainFilterRules!)) {
+          callback(new Error('You are not allowed to send mail'))
+          return
+        }
+        callback()
+      }
+    }
+
     return config
+  }
+
+  private startAutoDelete(): void {
+    const hours = this.options.autoDelete ?? 0
+    if (hours <= 0 || this.autoDeleteTimer) {
+      return
+    }
+
+    const interval = Math.min(hours * HOUR_MS, HOUR_MS)
+    this.autoDeleteTimer = setInterval(() => {
+      void this.deleteOldEmails().catch((error) => {
+        this.logger.error('Error deleting expired emails:', error)
+      })
+    }, interval)
+    this.autoDeleteTimer.unref?.()
   }
 
   /**
@@ -602,7 +762,12 @@ export class SMTPServer extends EventEmitter {
     session: SMTPServerSession
   ): Promise<string> {
     const id = makeId()
-    const emlPath = join(this.mailDir, `${id}.eml`)
+    const host = this.options.virtualHost
+      ? normalizeVirtualHost(session.hostNameAppearsAs)
+      : session.hostNameAppearsAs
+    const mailDir = this.mailDirectoryForHost(host)
+    await mkdir(mailDir, { recursive: true })
+    const emlPath = join(mailDir, `${id}.eml`)
 
     // Cap the bytes forwarded to the writer/parser at maxMessageSize. This
     // bounds the work spent parsing a single message regardless of how much
@@ -644,7 +809,7 @@ export class SMTPServer extends EventEmitter {
 
     // Save attachments
     if (parsed.attachments && parsed.attachments.length > 0) {
-      await this.saveAttachments(id, parsed.attachments)
+      await this.saveAttachments(id, parsed.attachments, mailDir)
     }
 
     // Build envelope from session - convert smtp-server types to our types
@@ -659,12 +824,14 @@ export class SMTPServer extends EventEmitter {
         address: addr.address,
         args: addr.args as Record<string, string | boolean> | false,
       })),
-      host: session.hostNameAppearsAs,
+      host,
       remoteAddress: session.remoteAddress,
     }
 
     // Save email to storage
-    await this.saveEmail(id, envelope, parsed)
+    const storage = this.storageForHost(host)
+    await storage.initialize()
+    await this.saveEmail(id, envelope, parsed, false, undefined, storage)
 
     return id
   }
@@ -702,9 +869,10 @@ export class SMTPServer extends EventEmitter {
     envelope: StoredEnvelope,
     parsed: ParsedEmail,
     isRestored = false,
-    metadata?: EmailMetadata | null
+    metadata?: EmailMetadata | null,
+    storage: Storage = this.storageForHost(envelope.host)
   ): Promise<Email> {
-    const emlPath = join(this.mailDir, `${id}.eml`)
+    const emlPath = join(this.mailDirectoryForHost(envelope.host), `${id}.eml`)
     const emlStat = await stat(emlPath)
 
     // Transform attachments for storage
@@ -759,6 +927,8 @@ export class SMTPServer extends EventEmitter {
       envelope: {
         from: this.toEnvelopeAddress(envelope.from),
         to: envelope.to.map((t) => this.toEnvelopeAddress(t)),
+        ...(envelope.host ? { host: envelope.host } : {}),
+        ...(envelope.remoteAddress ? { remoteAddress: envelope.remoteAddress } : {}),
       },
       calculatedBcc,
     }
@@ -786,7 +956,7 @@ export class SMTPServer extends EventEmitter {
       email.relayedTo = metadata.relayedTo ?? []
     }
 
-    await this.storage.save(email)
+    await storage.save(email)
 
     this.logger.log('Saved email:', parsed.subject, 'id:', id)
 
@@ -830,9 +1000,10 @@ export class SMTPServer extends EventEmitter {
    */
   private async saveAttachments(
     emailId: string,
-    attachments: ParsedAttachment[]
+    attachments: ParsedAttachment[],
+    mailDir: string
   ): Promise<void> {
-    const attachDir = getAttachmentDir(this.mailDir, emailId)
+    const attachDir = getAttachmentDir(mailDir, emailId)
 
     if (!existsSync(attachDir)) {
       mkdirSync(attachDir, { recursive: true })
@@ -844,9 +1015,9 @@ export class SMTPServer extends EventEmitter {
       }
 
       const transformed = transformAttachment(attachment)
-      const filePath = getAttachmentFilePath(this.mailDir, emailId, transformed)
+      const filePath = getAttachmentFilePath(mailDir, emailId, transformed)
 
-      await writeFile(filePath, attachment.content)
+      await writeFile(filePath, new Uint8Array(attachment.content))
     }
   }
 
@@ -897,18 +1068,35 @@ export class SMTPServer extends EventEmitter {
     this.logger.info('Using mail directory:', this.mailDir)
   }
 
+  private storageForHost(host?: string): Storage {
+    if (!this.options.virtualHost) {
+      return this.storage
+    }
+    if (!this.storage.forHost) {
+      throw new Error('Virtual host mode requires a host-aware storage backend')
+    }
+    return this.storage.forHost(host ?? '')
+  }
+
+  private mailDirectoryForHost(host?: string): string {
+    return this.options.virtualHost
+      ? join(this.mailDir, encodeURIComponent(normalizeVirtualHost(host)))
+      : this.mailDir
+  }
+
   /**
    * Clear all files in the mail directory
    */
-  private async clearMailDir(): Promise<void> {
+  private async clearMailDir(host?: string): Promise<void> {
+    const mailDir = this.mailDirectoryForHost(host)
     try {
-      const files = await readdir(this.mailDir)
+      const files = await readdir(mailDir)
 
       // Bounded concurrency: an inbox with tens of thousands of emails would
       // otherwise try to unlink every file at once and hit EMFILE.
       await mapLimit(files, FS_CONCURRENCY, async (file) => {
         try {
-          await rm(join(this.mailDir, file), { recursive: true, force: true })
+          await rm(join(mailDir, file), { recursive: true, force: true })
         } catch (err) {
           this.logger.error('Error deleting file:', file, err)
         }
@@ -921,15 +1109,15 @@ export class SMTPServer extends EventEmitter {
   /**
    * List the .eml files in the mail directory, newest first
    */
-  private async listEmlFiles(): Promise<EmlFile[]> {
-    const entries = await readdir(this.mailDir, { withFileTypes: true })
+  private async listEmlFiles(mailDir = this.mailDir): Promise<EmlFile[]> {
+    const entries = await readdir(mailDir, { withFileTypes: true })
     const emlEntries = entries.filter(
       (entry) => entry.isFile() && entry.name.endsWith('.eml')
     )
 
     const files = await mapLimit(emlEntries, FS_CONCURRENCY, async (entry) => {
       try {
-        const info = await stat(join(this.mailDir, entry.name))
+        const info = await stat(join(mailDir, entry.name))
         return { id: entry.name.slice(0, -4), mtimeMs: info.mtimeMs }
       } catch {
         // Raced with a delete; treat it as gone
@@ -945,15 +1133,20 @@ export class SMTPServer extends EventEmitter {
   /**
    * Remove an email's .eml file and attachment directory, if they exist
    */
-  private async removeEmailFiles(id: string): Promise<void> {
+  private async removeEmailFiles(
+    id: string,
+    host?: string,
+    mailDirOverride?: string
+  ): Promise<void> {
+    const mailDir = mailDirOverride ?? this.mailDirectoryForHost(host)
     try {
-      await rm(join(this.mailDir, `${id}.eml`), { force: true })
+      await rm(join(mailDir, `${id}.eml`), { force: true })
     } catch (err) {
       this.logger.error('Error deleting email file:', err)
     }
 
     try {
-      await rm(getAttachmentDir(this.mailDir, id), { recursive: true, force: true })
+      await rm(getAttachmentDir(mailDir, id), { recursive: true, force: true })
     } catch {
       // Directory may not exist
     }

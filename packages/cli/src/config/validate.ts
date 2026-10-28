@@ -177,9 +177,24 @@ export function validateConfig(config: MailDevConfig): ValidationResult {
     })
   }
 
+  if (
+    config.autoDelete !== undefined &&
+    (!Number.isInteger(config.autoDelete) || config.autoDelete < 0)
+  ) {
+    errors.push({
+      field: 'autoDelete',
+      message: 'autoDelete must be a non-negative integer number of hours (0 disables it)',
+    })
+  }
+
   // Validate auto-relay rules file
   if (config.autoRelayRules) {
     const rulesError = validateFilePath(config.autoRelayRules, 'autoRelayRules')
+    if (rulesError) errors.push(rulesError)
+  }
+
+  if (config.domainFilterRules) {
+    const rulesError = validateFilePath(config.domainFilterRules, 'domainFilterRules')
     if (rulesError) errors.push(rulesError)
   }
 

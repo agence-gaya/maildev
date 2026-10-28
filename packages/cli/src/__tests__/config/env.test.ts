@@ -178,6 +178,17 @@ describe('loadEnvConfig', () => {
     expect(config.autoRelay).toBeUndefined()
     expect(config.autoRelayRules).toBeUndefined()
   })
+
+  it('should read the legacy virtual-host, retention, and domain-filter variables', () => {
+    process.env.MAILDEV_VIRTUAL_HOST = 'true'
+    process.env.MAILDEV_AUTO_DELETE = '168'
+    process.env.MAILDEV_DOMAIN_FILTER_RULES = '/etc/maildev/rules/domain.json'
+
+    const config = loadEnvConfig()
+    expect(config.virtualHost).toBe(true)
+    expect(config.autoDelete).toBe(168)
+    expect(config.domainFilterRules).toBe('/etc/maildev/rules/domain.json')
+  })
 })
 
 describe('getEnvVarName', () => {

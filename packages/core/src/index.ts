@@ -34,6 +34,7 @@ export type {
 // Storage implementations
 export { MemoryStorage } from './storage/memory.js'
 export { FileStorage } from './storage/file.js'
+export { VirtualHostStorage } from './storage/virtual-host.js'
 
 // Utilities
 export { makeId } from './utils/id.js'
@@ -43,6 +44,7 @@ export { delay } from './utils/delay.js'
 export { filterEmails, matchesSearchTerm } from './utils/filter.js'
 export { toSummary } from './utils/summary.js'
 export { mapLimit } from './utils/concurrency.js'
+export { normalizeVirtualHost } from './utils/virtual-host.js'
 
 // Helpers
 export { calculateBcc } from './helpers/bcc.js'

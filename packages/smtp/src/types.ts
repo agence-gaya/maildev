@@ -37,6 +37,12 @@ export interface SMTPServerOptions {
   maxMessageSize?: number
   /** Auto-relay configuration */
   autoRelay?: AutoRelayConfig
+  /** Use the SMTP EHLO name to partition inboxes */
+  virtualHost?: boolean
+  /** Ordered allow/deny rules for SMTP EHLO names */
+  domainFilterRules?: DomainFilterRule[]
+  /** Delete emails older than this many hours (0 disables automatic deletion) */
+  autoDelete?: number
   /** Logger instance or false to disable */
   logger?: Logger | false
 }
@@ -73,6 +79,12 @@ export interface RelayRule {
   /** Pattern to match (supports wildcards) */
   allow?: string
   /** Pattern to deny (supports wildcards) */
+  deny?: string
+}
+
+/** Allow/deny rule matching an SMTP EHLO hostname */
+export interface DomainFilterRule {
+  allow?: string
   deny?: string
 }
 
@@ -187,7 +199,7 @@ export interface SMTPServerEvents {
   /** Emitted when a new email is received */
   new: (email: Email) => void
   /** Emitted when an email is deleted */
-  delete: (info: { id: string; index?: number }) => void
+  delete: (info: { id: string; index?: number; host?: string }) => void
   /** Emitted when the server is closed */
   close: () => void
   /** Emitted on server errors */

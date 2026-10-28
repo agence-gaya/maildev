@@ -34,6 +34,9 @@ function cliOptionsToConfig(options: CLIOptions): PartialMailDevConfig {
   if (options.maxEmails !== undefined) {
     config.maxEmails = parseInt(options.maxEmails, 10)
   }
+  if (options.autoDelete !== undefined) {
+    config.autoDelete = parseInt(options.autoDelete, 10)
+  }
 
   // String options
   if (options.ip !== undefined) config.ip = options.ip
@@ -51,6 +54,7 @@ function cliOptionsToConfig(options: CLIOptions): PartialMailDevConfig {
   if (options.outgoingUser !== undefined) config.outgoingUser = options.outgoingUser
   if (options.outgoingPass !== undefined) config.outgoingPass = options.outgoingPass
   if (options.autoRelayRules !== undefined) config.autoRelayRules = options.autoRelayRules
+  if (options.domainFilterRules !== undefined) config.domainFilterRules = options.domainFilterRules
   if (options.mailDirectory !== undefined) config.mailDirectory = options.mailDirectory
   if (options.config !== undefined) config.config = options.config
 
@@ -64,6 +68,7 @@ function cliOptionsToConfig(options: CLIOptions): PartialMailDevConfig {
   if (options.logMailContents !== undefined)
     config.logMailContents = options.logMailContents
   if (options.mcp !== undefined) config.mcp = options.mcp
+  if (options.virtualHost !== undefined) config.virtualHost = options.virtualHost
 
   // Auto-relay (can be boolean or string)
   if (options.autoRelay !== undefined) {

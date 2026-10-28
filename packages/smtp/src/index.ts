@@ -43,6 +43,7 @@ export type {
   AutoRelayConfig,
   RelayConfig,
   RelayRule,
+  DomainFilterRule,
   RelayResult,
   RelayTask,
   SMTPSession,

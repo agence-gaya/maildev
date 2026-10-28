@@ -40,6 +40,7 @@ export const DEFAULT_CONFIG: MailDevConfig = {
 
   // v3 features (off by default for compatibility)
   mcp: false,
+  virtualHost: false,
 }
 
 /**

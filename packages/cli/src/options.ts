@@ -131,6 +131,9 @@ export function configureOptions(program: Command): void {
       '--max-emails <count>',
       `Maximum emails to keep; the oldest are discarded with their files (0 = unlimited) (default: ${DEFAULT_CONFIG.maxEmails})`
     )
+    .option('--virtual-host', 'Isolate inboxes by SMTP EHLO name and HTTP Host')
+    .option('--auto-delete <hours>', 'Delete emails older than this many hours (0 disables it)')
+    .option('--domain-filter-rules <file>', 'Path to SMTP EHLO domain filter rules JSON')
 
     // === Logging Options ===
     .option(
@@ -173,6 +176,9 @@ Environment Variables:
   MAILDEV_MAIL_DIRECTORY Directory for persisting emails
   MAILDEV_MAX_MESSAGE_SIZE Max accepted message size in bytes (default: 52428800)
   MAILDEV_MAX_EMAILS    Maximum emails to keep (0 = unlimited, the default)
+  MAILDEV_VIRTUAL_HOST  Isolate inboxes by SMTP EHLO name and HTTP Host
+  MAILDEV_AUTO_DELETE   Delete emails older than this many hours (0 disables it)
+  MAILDEV_DOMAIN_FILTER_RULES Path to SMTP EHLO domain filter rules JSON
 `
 
 /**

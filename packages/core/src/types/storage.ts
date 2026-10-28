@@ -91,6 +91,12 @@ export interface Storage {
   /** Storage configuration options */
   readonly options: StorageOptions
 
+  /** Resolve an isolated storage partition for a virtual host, when enabled */
+  forHost?(host: string): Storage
+
+  /** Known virtual hosts, when this storage partitions emails by host */
+  getHosts?(): Promise<string[]>
+
   // CRUD Operations
 
   /**

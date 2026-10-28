@@ -34,6 +34,9 @@ const ENV_MAPPING: Record<string, keyof PartialMailDevConfig> = {
   MAILDEV_OUTGOING_PASS: 'outgoingPass',
   MAILDEV_AUTO_RELAY: 'autoRelay',
   MAILDEV_AUTO_RELAY_RULES: 'autoRelayRules',
+  MAILDEV_AUTO_DELETE: 'autoDelete',
+  MAILDEV_DOMAIN_FILTER_RULES: 'domainFilterRules',
+  MAILDEV_VIRTUAL_HOST: 'virtualHost',
 
   // Storage
   MAILDEV_MAIL_DIRECTORY: 'mailDirectory',
@@ -52,6 +55,7 @@ const NUMBER_VARS = new Set([
   'MAILDEV_OUTGOING_PORT',
   'MAILDEV_MAX_MESSAGE_SIZE',
   'MAILDEV_MAX_EMAILS',
+  'MAILDEV_AUTO_DELETE',
 ])
 
 /**
@@ -63,6 +67,7 @@ const BOOLEAN_VARS = new Set([
   'MAILDEV_HTTPS',
   'MAILDEV_DISABLE_WEB',
   'MAILDEV_MCP',
+  'MAILDEV_VIRTUAL_HOST',
   'MAILDEV_VERBOSE',
   'MAILDEV_SILENT',
 ])
@@ -149,6 +154,7 @@ function envVarToConfigKey(envVar: string): keyof PartialMailDevConfig | null {
     verbose: 'verbose',
     silent: 'silent',
     mcp: 'mcp',
+    virtualHost: 'virtualHost',
   }
 
   return mapping[camelCase] || null

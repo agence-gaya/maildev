@@ -20,7 +20,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { registerMCPHandlers, type EmailDataSource } from '@maildev/mcp'
-import { toSummary, type Storage, type Email, type SortOrder } from '@maildev/core'
+import { toSummary, normalizeVirtualHost, type Storage, type Email, type SortOrder } from '@maildev/core'
 import type { SMTPServer } from '@maildev/smtp'
 import type {
   APIServerOptions,
@@ -72,6 +72,7 @@ export class APIServer extends EventEmitter {
   private io: SocketServer | null = null
   private options: APIServerOptions
   private mcpTransports: Map<string, StreamableHTTPServerTransport> = new Map()
+  private mcpHosts: Map<string, string> = new Map()
   private pluginsRegistered = false
   private boundAddress: { host: string; port: number } | null = null
 
@@ -199,6 +200,7 @@ export class APIServer extends EventEmitter {
       await transport.close()
     }
     this.mcpTransports.clear()
+    this.mcpHosts.clear()
 
     if (this.io) {
       await new Promise<void>((resolve) => {
@@ -292,7 +294,7 @@ export class APIServer extends EventEmitter {
       // Storage returns full emails; the body-free summary projection happens
       // here, at the API boundary, so a listing stays a few hundred bytes per
       // email rather than tens of kilobytes.
-      const result = await this.storage.list({
+      const result = await this.storageForHost(request.headers.host).list({
         skip,
         limit,
         sort,
@@ -317,7 +319,7 @@ export class APIServer extends EventEmitter {
       const skipCount = parsePositiveInt(skip) ?? 0
       const limitCount = parsePositiveInt(limit)
 
-      const emails = await this.storage.getAll()
+      const emails = await this.storageForHost(request.headers.host).getAll()
 
       // Apply filtering if query params provided
       let result = emails
@@ -348,7 +350,8 @@ export class APIServer extends EventEmitter {
       async (request, reply) => {
         const { id } = request.params
 
-        const email = await this.storage.getById(id)
+        const storage = this.storageForHost(request.headers.host)
+        const email = await storage.getById(id)
         if (!email) {
           return reply.status(404).send({ error: 'Email was not found' })
         }
@@ -356,10 +359,10 @@ export class APIServer extends EventEmitter {
         // Mark as read
         if (!email.read) {
           email.read = true
-          await this.storage.save(email)
+          await storage.save(email)
           // Let other tabs update their list and unread badge; the tab that
           // opened the email has already done so optimistically.
-          this.io?.emit('readMail', { id })
+          this.emitForHost('readMail', { id }, request.headers.host)
         }
 
         return email
@@ -371,7 +374,7 @@ export class APIServer extends EventEmitter {
       const { id } = request.params
 
       try {
-        const deleted = await this.deleteEmail(id)
+        const deleted = await this.deleteEmail(id, request.headers.host)
         if (!deleted) {
           return reply.status(404).send({ error: 'Email was not found' })
         }
@@ -403,7 +406,7 @@ export class APIServer extends EventEmitter {
 
         try {
           for (const id of uniqueIds) {
-            const wasDeleted = await this.deleteEmail(id)
+            const wasDeleted = await this.deleteEmail(id, request.headers.host)
             if (wasDeleted) {
               deleted.push(id)
             } else {
@@ -420,12 +423,12 @@ export class APIServer extends EventEmitter {
     )
 
     // Delete all emails
-    this.app.delete(`${apiPath}/email/all`, async (_request, reply) => {
+    this.app.delete(`${apiPath}/email/all`, async (request, reply) => {
       try {
         if (this.smtp) {
-          await this.smtp.deleteAllEmails()
+          await this.smtp.deleteAllEmails(request.headers.host)
         } else {
-          await this.storage.deleteAll()
+          await this.storageForHost(request.headers.host).deleteAll()
         }
         return true
       } catch (err) {
@@ -435,15 +438,15 @@ export class APIServer extends EventEmitter {
     })
 
     // Mark all emails as read
-    this.app.patch(`${apiPath}/email/read-all`, async (_request, reply) => {
+    this.app.patch(`${apiPath}/email/read-all`, async (request, reply) => {
       try {
         const count = this.smtp
-          ? await this.smtp.markAllRead()
-          : await this.storage.markAllRead()
+          ? await this.smtp.markAllRead(request.headers.host)
+          : await this.storageForHost(request.headers.host).markAllRead()
         // Only tabs other than the one that triggered it need telling, and only
         // when something actually changed.
         if (count > 0) {
-          this.io?.emit('readAllMail')
+          this.emitForHost('readAllMail', undefined, request.headers.host)
         }
         return count
       } catch (err) {
@@ -461,7 +464,7 @@ export class APIServer extends EventEmitter {
         try {
           if (this.smtp) {
             // No host: the HTML is rendered for a browser already on this origin
-            const html = await this.smtp.getEmailHtml(id, { basePath })
+            const html = await this.smtp.getEmailHtml(id, { basePath }, request.headers.host)
             if (!html) {
               return reply.status(404).send({ error: 'Email has no HTML content' })
             }
@@ -469,7 +472,7 @@ export class APIServer extends EventEmitter {
             return html
           } else {
             // Fallback for storage-only mode
-            const email = await this.storage.getById(id)
+            const email = await this.storageForHost(request.headers.host).getById(id)
             if (!email) {
               return reply.status(404).send({ error: 'Email was not found' })
             }
@@ -494,7 +497,7 @@ export class APIServer extends EventEmitter {
 
         try {
           if (this.smtp) {
-            const stream = await this.smtp.getRawEmail(id)
+            const stream = await this.smtp.getRawEmail(id, request.headers.host)
             return reply.send(stream)
           } else {
             return reply.status(404).send({ error: 'Email source not available' })
@@ -514,7 +517,7 @@ export class APIServer extends EventEmitter {
 
         try {
           if (this.smtp) {
-            const download = await this.smtp.downloadEmail(id)
+            const download = await this.smtp.downloadEmail(id, request.headers.host)
             reply.header('Content-Disposition', `attachment; filename=${download.filename}`)
             reply.type(download.contentType)
             return reply.send(download.stream)
@@ -536,7 +539,11 @@ export class APIServer extends EventEmitter {
 
         try {
           if (this.smtp) {
-            const { contentType, stream } = await this.smtp.getEmailAttachment(id, filename)
+            const { contentType, stream } = await this.smtp.getEmailAttachment(
+              id,
+              filename,
+              request.headers.host
+            )
             reply.type(contentType)
             return reply.send(stream)
           } else {
@@ -565,7 +572,7 @@ export class APIServer extends EventEmitter {
           }
 
           // Get the email
-          const email = structuredClone(await this.smtp.getEmail(id))
+          const email = structuredClone(await this.smtp.getEmail(id, request.headers.host))
 
           // Override recipient if specified
           if (relayTo) {
@@ -587,10 +594,10 @@ export class APIServer extends EventEmitter {
     )
 
     // Reload emails from directory
-    this.app.get(`${apiPath}/reloadMailsFromDirectory`, async (_request, reply) => {
+    this.app.get(`${apiPath}/reloadMailsFromDirectory`, async (request, reply) => {
       try {
         if (this.smtp) {
-          await this.smtp.loadMailsFromDirectory()
+          await this.smtp.loadMailsFromDirectory(request.headers.host)
         }
         return true
       } catch (err) {
@@ -603,18 +610,50 @@ export class APIServer extends EventEmitter {
   /**
    * Delete one email using SMTP when available so delete events are emitted.
    */
-  private async deleteEmail(id: string): Promise<boolean> {
-    const email = await this.storage.getById(id)
+  private async deleteEmail(id: string, host?: string): Promise<boolean> {
+    const storage = this.storageForHost(host)
+    const email = await storage.getById(id)
     if (!email) {
       return false
     }
 
     if (this.smtp) {
-      await this.smtp.deleteEmail(id)
+      await this.smtp.deleteEmail(id, host)
       return true
     }
 
-    return this.storage.delete(id)
+    return storage.delete(id)
+  }
+
+  private storageForHost(host?: string): Storage {
+    if (!this.options.virtualHost) {
+      return this.storage
+    }
+    if (!this.storage.forHost) {
+      throw new Error('Virtual host mode requires a host-aware storage backend')
+    }
+    return this.storage.forHost(host ?? '')
+  }
+
+  private hostRoom(host?: string): string {
+    return `virtual-host:${normalizeVirtualHost(host)}`
+  }
+
+  private emitForHost(event: string, payload: unknown, host?: string): void {
+    if (this.options.virtualHost) {
+      const room = this.io?.to(this.hostRoom(host))
+      if (payload === undefined) {
+        room?.emit(event)
+      } else {
+        room?.emit(event, payload)
+      }
+    } else {
+      if (payload === undefined) {
+        this.io?.emit(event)
+      } else {
+        this.io?.emit(event, payload)
+      }
+    }
   }
 
   /**
@@ -636,6 +675,17 @@ export class APIServer extends EventEmitter {
       },
     })
 
+    this.io.on('connection', (socket) => {
+      if (this.options.virtualHost) {
+        const requestHost = socket.handshake.headers.host
+        try {
+          socket.join(this.hostRoom(Array.isArray(requestHost) ? requestHost[0] : requestHost))
+        } catch {
+          socket.disconnect(true)
+        }
+      }
+    })
+
     // Subscribe once and broadcast, rather than adding a pair of SMTP listeners
     // per connected socket — that grew with every open tab and tripped the
     // EventEmitter max-listeners warning.
@@ -644,11 +694,11 @@ export class APIServer extends EventEmitter {
     // their list and show a notification, and shipping full bodies to every
     // tab on every delivery is what made a burst of mail so expensive.
     this.smtp.on('new', (email: Email) => {
-      this.io?.emit('newMail', toSummary(email))
+      this.emitForHost('newMail', toSummary(email), email.envelope.host)
     })
 
-    this.smtp.on('delete', (data: { id: string; index?: number }) => {
-      this.io?.emit('deleteMail', data)
+    this.smtp.on('delete', (data: { id: string; index?: number; host?: string }) => {
+      this.emitForHost('deleteMail', data, data.host)
     })
   }
 
@@ -676,38 +726,39 @@ export class APIServer extends EventEmitter {
 
     const basePath = this.options.basePath ?? ''
 
-    // Create a data source adapter that uses direct storage access
-    const dataSource: EmailDataSource = {
-      getEmails: () => this.storage.getAll(),
-      getEmail: async (id: string) => {
-        const email = await this.storage.getById(id)
-        if (!email) {
-          throw new Error(`Email not found: ${id}`)
-        }
-        return email
-      },
-      deleteEmail: async (id: string) => {
-        if (this.smtp) {
-          await this.smtp.deleteEmail(id)
-        } else {
-          const deleted = await this.storage.delete(id)
-          if (!deleted) {
+    const createDataSource = (host?: string): EmailDataSource => {
+      const storage = this.storageForHost(host)
+      return {
+        getEmails: () => storage.getAll(),
+        getEmail: async (id: string) => {
+          const email = await storage.getById(id)
+          if (!email) {
             throw new Error(`Email not found: ${id}`)
           }
-        }
-      },
-      getAttachment: async (emailId: string, filename: string) => {
-        if (this.smtp) {
-          const { stream } = await this.smtp.getEmailAttachment(emailId, filename)
-          // Convert stream to buffer
-          const chunks: Buffer[] = []
-          for await (const chunk of stream) {
-            chunks.push(Buffer.from(chunk))
+          return email
+        },
+        deleteEmail: async (id: string) => {
+          if (this.smtp) {
+            await this.smtp.deleteEmail(id, host)
+          } else {
+            const deleted = await storage.delete(id)
+            if (!deleted) {
+              throw new Error(`Email not found: ${id}`)
+            }
           }
-          return Buffer.concat(chunks)
-        }
-        throw new Error('Attachments require SMTP server')
-      },
+        },
+        getAttachment: async (emailId: string, filename: string) => {
+          if (this.smtp) {
+            const { stream } = await this.smtp.getEmailAttachment(emailId, filename, host)
+            const chunks: Buffer[] = []
+            for await (const chunk of stream) {
+              chunks.push(Buffer.from(chunk))
+            }
+            return Buffer.concat(chunks)
+          }
+          throw new Error('Attachments require SMTP server')
+        },
+      }
     }
 
     // Deep links point at this server's own web UI unless an explicit public
@@ -717,21 +768,32 @@ export class APIServer extends EventEmitter {
     // Build a fresh MCP server for each session. A single `Server` instance can
     // only be bound to one transport at a time, so sharing one across sessions
     // makes the second `connect()` throw "Already connected to a transport".
-    const createMcpServer = (): MCPServer => {
+    const createMcpServer = (host?: string): MCPServer => {
       const server = new MCPServer(
         { name: 'maildev', version: VERSION },
         { capabilities: { tools: {}, resources: {}, prompts: {} } }
       )
-      registerMCPHandlers(server, dataSource, { webUrl })
+      registerMCPHandlers(server, createDataSource(host), { webUrl })
       return server
     }
 
     // POST /mcp - Handle JSON-RPC requests
     this.app.post(`${basePath}/mcp`, async (request, reply) => {
       const sessionId = request.headers['mcp-session-id'] as string | undefined
+      const host = this.options.virtualHost
+        ? normalizeVirtualHost(request.headers.host)
+        : undefined
 
       try {
         let transport = sessionId ? this.mcpTransports.get(sessionId) : undefined
+
+        if (
+          sessionId &&
+          this.options.virtualHost &&
+          this.mcpHosts.get(sessionId) !== host
+        ) {
+          return reply.status(400).send({ error: 'MCP session belongs to another virtual host' })
+        }
 
         if (!transport) {
           // Only spin up a new session (and its own server) for an initialize
@@ -753,13 +815,17 @@ export class APIServer extends EventEmitter {
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: (id) => {
               this.mcpTransports.set(id, transport!)
+              if (host) {
+                this.mcpHosts.set(id, host)
+              }
             },
             onsessionclosed: (id) => {
               this.mcpTransports.delete(id)
+              this.mcpHosts.delete(id)
             },
           })
 
-          await createMcpServer().connect(transport as unknown as Transport)
+          await createMcpServer(host).connect(transport as unknown as Transport)
         }
 
         await transport.handleRequest(request.raw, reply.raw, request.body)
@@ -775,6 +841,12 @@ export class APIServer extends EventEmitter {
 
       if (!sessionId || !this.mcpTransports.has(sessionId)) {
         return reply.status(400).send({ error: 'Invalid or missing session ID' })
+      }
+      if (
+        this.options.virtualHost &&
+        this.mcpHosts.get(sessionId) !== normalizeVirtualHost(request.headers.host)
+      ) {
+        return reply.status(400).send({ error: 'MCP session belongs to another virtual host' })
       }
 
       try {
@@ -792,6 +864,12 @@ export class APIServer extends EventEmitter {
 
       if (!sessionId || !this.mcpTransports.has(sessionId)) {
         return reply.status(400).send({ error: 'Invalid or missing session ID' })
+      }
+      if (
+        this.options.virtualHost &&
+        this.mcpHosts.get(sessionId) !== normalizeVirtualHost(request.headers.host)
+      ) {
+        return reply.status(400).send({ error: 'MCP session belongs to another virtual host' })
       }
 
       try {
