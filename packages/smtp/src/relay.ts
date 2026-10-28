@@ -100,6 +100,7 @@ export class RelayClient {
 
     // Fail silently if no recipients
     if (recipients.length === 0) {
+      emailStream.destroy()
       return {
         success: false,
         message: 'Email had no recipients after filtering',
@@ -132,6 +133,7 @@ export class RelayClient {
         error: err,
       }
     } finally {
+      emailStream.destroy()
       await this.disconnect()
     }
   }
@@ -158,6 +160,7 @@ export class RelayClient {
 
       this.client.on('error', (err: Error) => {
         this.logger.error('SMTP Connection error:', err)
+        reject(err)
       })
 
       this.client.connect((err?: Error) => {

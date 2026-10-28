@@ -565,7 +565,7 @@ export class APIServer extends EventEmitter {
           }
 
           // Get the email
-          const email = await this.smtp.getEmail(id)
+          const email = structuredClone(await this.smtp.getEmail(id))
 
           // Override recipient if specified
           if (relayTo) {

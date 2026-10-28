@@ -399,9 +399,13 @@ export class SMTPServer extends EventEmitter {
 
     // Record the successful relay on the stored email so the API and UI can
     // tell whether (and where) a message was delivered.
-    email.relayedAt = new Date()
-    email.relayedTo = result.recipients ?? []
-    await this.storage.save(email)
+    const storedEmail = await this.storage.getById(email.id)
+    if (!storedEmail) {
+      return
+    }
+    storedEmail.relayedAt = new Date()
+    storedEmail.relayedTo = result.recipients ?? []
+    await this.storage.save(storedEmail)
   }
 
   /**
