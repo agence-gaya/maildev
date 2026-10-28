@@ -742,7 +742,7 @@ export class SMTPServer extends EventEmitter {
     // Build email object, only including optional fields if they have values
     const email: Email = {
       id,
-      time: parsed.date || new Date(),
+      time: parsed.date || (isRestored ? emlStat.mtime : new Date()),
       read: isRestored,
       subject: parsed.subject || '',
       source: emlPath,

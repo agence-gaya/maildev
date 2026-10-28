@@ -152,6 +152,14 @@ describe('FileStorage', () => {
       expect(await storage.readMetadata('plain')).toBeNull()
     })
 
+    it('ignores a corrupt metadata sidecar', async () => {
+      storage = new FileStorage({ mailDirectory })
+      await storage.initialize()
+      await writeFile(join(mailDirectory, 'corrupt.meta.json'), '{"relayedAt":')
+
+      expect(await storage.readMetadata('corrupt')).toBeNull()
+    })
+
     it('removes the sidecar when the email is deleted', async () => {
       storage = new FileStorage({ mailDirectory })
       await storage.initialize()

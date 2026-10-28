@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { MemoryStorage } from '@maildev/core'
@@ -56,6 +56,27 @@ describe('loadMailsFromDirectory', () => {
     const emails = await storage.getAll()
     expect(emails).toHaveLength(1)
     expect(emails[0]?.id).toBe('valid')
+  })
+
+  it('restores an email without a From header', async () => {
+    await writeFile(join(mailDir, 'no-from.eml'), 'To: recipient@example.com\r\nSubject: No sender\r\n\r\nBody\r\n')
+
+    await server.loadMailsFromDirectory()
+
+    const email = await storage.getById('no-from')
+    expect(email?.from).toEqual([])
+    expect(email?.envelope.from.address).toBe('')
+  })
+
+  it('keeps the file timestamp when a restored email has no Date header', async () => {
+    const receivedAt = new Date('2020-01-02T03:04:05.000Z')
+    const path = join(mailDir, 'no-date.eml')
+    await writeFile(path, 'From: sender@example.com\r\nSubject: No date\r\n\r\nBody\r\n')
+    await utimes(path, receivedAt, receivedAt)
+
+    await server.loadMailsFromDirectory()
+
+    expect((await storage.getById('no-date'))?.time).toEqual(receivedAt)
   })
 
   it('does not throw when the mail directory has no emails', async () => {

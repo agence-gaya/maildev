@@ -90,7 +90,7 @@ describe('inline cid rewriting through the full SMTP flow', () => {
     for await (const chunk of attachment.stream) {
       chunks.push(chunk as Buffer)
     }
-    expect(Buffer.concat(chunks).toString()).toBe(SVG)
+    expect(Buffer.concat(chunks.map((chunk) => new Uint8Array(chunk))).toString()).toBe(SVG)
   })
 
   it('prefixes the rewritten attachment URL with the configured base path', async () => {
