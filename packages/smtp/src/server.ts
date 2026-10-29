@@ -8,7 +8,7 @@ import { SMTPServer as SMTPServerLib } from 'smtp-server'
 import type { SMTPServerSession, SMTPServerDataStream } from 'smtp-server'
 import { EventEmitter } from 'node:events'
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs'
-import { mkdir, rm, readdir, readFile, writeFile, stat } from 'node:fs/promises'
+import { mkdir, rm, readdir, readFile, writeFile, stat, lstat, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { PassThrough, Transform, type Readable } from 'node:stream'
@@ -491,6 +491,8 @@ export class SMTPServer extends EventEmitter {
     host: string | undefined,
     storage: Storage
   ): Promise<void> {
+    await this.removeOrphanedSidecars(mailDir)
+
     let files: EmlFile[]
     try {
       files = await this.listEmlFiles(mailDir)
@@ -561,6 +563,45 @@ export class SMTPServer extends EventEmitter {
         }
       }
     }
+  }
+
+  private async removeOrphanedSidecars(mailDir: string): Promise<void> {
+    let entries
+    try {
+      entries = await readdir(mailDir, { withFileTypes: true })
+    } catch (err) {
+      this.logger.error('Error reading mail directory for orphaned sidecars:', mailDir, err)
+      return
+    }
+
+    const sidecars = entries.filter(
+      (entry) =>
+        entry.isFile() && (entry.name.endsWith('.evl') || entry.name.endsWith('.meta.json'))
+    )
+
+    await mapLimit(sidecars, FS_CONCURRENCY, async (sidecar) => {
+      const suffix = sidecar.name.endsWith('.meta.json') ? '.meta.json' : '.evl'
+      const id = sidecar.name.slice(0, -suffix.length)
+      try {
+        const emailFile = await lstat(join(mailDir, `${id}.eml`))
+        if (emailFile.isFile()) {
+          return
+        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          this.logger.error('Error checking email file for sidecar:', sidecar.name, err)
+          return
+        }
+      }
+
+      try {
+        await unlink(join(mailDir, sidecar.name))
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          this.logger.error('Error deleting orphaned sidecar:', sidecar.name, err)
+        }
+      }
+    })
   }
 
   /**

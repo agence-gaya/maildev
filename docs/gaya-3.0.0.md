@@ -82,7 +82,10 @@ Deux différences à prendre en compte avant le déploiement :
    désormais `relayHistory`, avec une entrée par relais réussi, ainsi que
    `relayedAt`/`relayedTo` pour le dernier succès. Un ancien fichier ne contenant
    que ces deux champs est lu comme un historique d'une entrée : les relais plus
-   anciens déjà écrasés ne peuvent pas être reconstitués.
+   anciens déjà écrasés ne peuvent pas être reconstitués. Au chargement, un `.evl`
+   ou `.meta.json` sans fichier `.eml` régulier correspondant dans son répertoire
+   est supprimé ; cette vérification est faite même si le message ne fait pas
+   partie de la sélection `maxEmails`.
 3. Les mises à jour du sidecar sont sérialisées dans le processus et écrites dans
    un fichier temporaire synchronisé avant son renommage atomique ; cela évite les
    pertes et JSON partiels quand plusieurs utilisateurs relaient simultanément.

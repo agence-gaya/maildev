@@ -140,7 +140,15 @@ export class VirtualHostStorage implements Storage {
         const files = await readdir(join(this.options.mailDirectory, entry.name), {
           withFileTypes: true,
         })
-        if (files.some((file) => file.isFile() && file.name.endsWith('.eml'))) {
+        if (
+          files.some(
+            (file) =>
+              file.isFile() &&
+              (file.name.endsWith('.eml') ||
+                file.name.endsWith('.evl') ||
+                file.name.endsWith('.meta.json'))
+          )
+        ) {
           await this.forHost(host).initialize()
         }
       }

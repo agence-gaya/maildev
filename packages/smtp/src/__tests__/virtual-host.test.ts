@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import nodemailer from 'nodemailer'
@@ -32,7 +32,9 @@ describe('SMTP virtual hosts', () => {
     }
   }
 
-  async function startServer(options: { domainFilterRules?: { allow?: string; deny?: string }[] } = {}): Promise<void> {
+  async function startServer(
+    options: { domainFilterRules?: { allow?: string; deny?: string }[] } = {}
+  ): Promise<void> {
     server = new SMTPServer({
       storage,
       mailDir,
@@ -131,11 +133,46 @@ describe('SMTP virtual hosts', () => {
     })
     await server.loadMailsFromDirectory()
 
-    expect((await storage.forHost('alpha.example.test').getById(email!.id))?.envelope.host)
-      .toBe('alpha.example.test')
-    expect((await storage.forHost('alpha.example.test').getById(email!.id))?.envelope.remoteAddress)
-      .toBe('192.0.2.1')
+    expect((await storage.forHost('alpha.example.test').getById(email!.id))?.envelope.host).toBe(
+      'alpha.example.test'
+    )
+    expect(
+      (await storage.forHost('alpha.example.test').getById(email!.id))?.envelope.remoteAddress
+    ).toBe('192.0.2.1')
     expect(await storage.forHost('beta.example.test').count()).toBe(0)
+  })
+
+  it('cleans orphan sidecars per discovered virtual host', async () => {
+    await server.stop()
+    await storage.close()
+
+    const alphaDir = join(mailDir, 'alpha.example.test')
+    const betaDir = join(mailDir, 'beta.example.test')
+    await mkdir(alphaDir, { recursive: true })
+    await mkdir(betaDir, { recursive: true })
+    await writeFile(join(alphaDir, 'same-id.evl'), '{}')
+    await writeFile(join(alphaDir, 'same-id.meta.json'), '{}')
+    await writeFile(
+      join(betaDir, 'same-id.eml'),
+      'From: sender@example.com\r\nTo: recipient@example.com\r\nSubject: Saved\r\n\r\nBody\r\n'
+    )
+    await writeFile(join(betaDir, 'same-id.evl'), '{}')
+    await writeFile(join(betaDir, 'same-id.meta.json'), '{}')
+
+    storage = new VirtualHostStorage({ mailDirectory: mailDir })
+    await storage.initialize()
+    expect(await storage.getHosts()).toContain('alpha.example.test')
+    await startServer()
+    await server.loadMailsFromDirectory()
+
+    const alphaFiles = await readdir(alphaDir)
+    const betaFiles = await readdir(betaDir)
+    expect(alphaFiles).not.toContain('same-id.evl')
+    expect(alphaFiles).not.toContain('same-id.meta.json')
+    expect(betaFiles).toContain('same-id.eml')
+    expect(betaFiles).toContain('same-id.evl')
+    expect(betaFiles).toContain('same-id.meta.json')
+    expect(await storage.forHost('beta.example.test').getById('same-id')).toBeDefined()
   })
 
   it('applies ordered domain rules to the SMTP EHLO name', async () => {

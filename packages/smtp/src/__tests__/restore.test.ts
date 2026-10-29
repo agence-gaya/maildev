@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, rm, writeFile, utimes } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, symlink, writeFile, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { MemoryStorage } from '@maildev/core'
@@ -89,8 +89,57 @@ describe('loadMailsFromDirectory', () => {
     expect(emails[0]?.id).toBe('valid')
   })
 
+  it('removes orphaned sidecars without touching associated or unrelated files', async () => {
+    await writeFile(join(mailDir, 'valid.eml'), EML)
+    await writeFile(join(mailDir, 'valid.evl'), '{}')
+    await writeFile(join(mailDir, 'valid.meta.json'), '{}')
+    await writeFile(join(mailDir, 'orphan.evl'), '{}')
+    await writeFile(join(mailDir, 'orphan.meta.json'), '{}')
+    await writeFile(join(mailDir, 'notes.txt'), 'keep')
+    await mkdir(join(mailDir, 'directory.evl'))
+    await symlink(join(mailDir, 'notes.txt'), join(mailDir, 'linked.evl'))
+
+    await server.loadMailsFromDirectory()
+
+    const files = await readdir(mailDir)
+    expect(files).toContain('valid.evl')
+    expect(files).toContain('valid.meta.json')
+    expect(files).not.toContain('orphan.evl')
+    expect(files).not.toContain('orphan.meta.json')
+    expect(files).toContain('notes.txt')
+    expect(files).toContain('directory.evl')
+    expect(files).toContain('linked.evl')
+  })
+
+  it('keeps sidecars for emails outside the maxEmails restore limit', async () => {
+    storage = new MemoryStorage({ maxEmails: 1 })
+    await storage.initialize()
+    server = new SMTPServer({ storage, mailDir })
+
+    const oldPath = join(mailDir, 'old.eml')
+    const newPath = join(mailDir, 'new.eml')
+    await writeFile(oldPath, EML)
+    await writeFile(newPath, EML)
+    const oldTime = new Date('2020-01-01T00:00:00.000Z')
+    const newTime = new Date('2025-01-01T00:00:00.000Z')
+    await utimes(oldPath, oldTime, oldTime)
+    await utimes(newPath, newTime, newTime)
+    await writeFile(join(mailDir, 'old.evl'), '{}')
+    await writeFile(join(mailDir, 'old.meta.json'), '{}')
+
+    await server.loadMailsFromDirectory()
+
+    expect((await storage.getAll()).map((email) => email.id)).toEqual(['new'])
+    const files = await readdir(mailDir)
+    expect(files).toContain('old.evl')
+    expect(files).toContain('old.meta.json')
+  })
+
   it('restores an email without a From header', async () => {
-    await writeFile(join(mailDir, 'no-from.eml'), 'To: recipient@example.com\r\nSubject: No sender\r\n\r\nBody\r\n')
+    await writeFile(
+      join(mailDir, 'no-from.eml'),
+      'To: recipient@example.com\r\nSubject: No sender\r\n\r\nBody\r\n'
+    )
 
     await server.loadMailsFromDirectory()
 
