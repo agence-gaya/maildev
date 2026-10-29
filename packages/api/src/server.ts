@@ -20,7 +20,13 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { registerMCPHandlers, type EmailDataSource } from '@maildev/mcp'
-import { toSummary, normalizeVirtualHost, type Storage, type Email, type SortOrder } from '@maildev/core'
+import {
+  toSummary,
+  normalizeVirtualHost,
+  type Storage,
+  type Email,
+  type SortOrder,
+} from '@maildev/core'
 import type { SMTPServer } from '@maildev/smtp'
 import type {
   APIServerOptions,
@@ -107,7 +113,9 @@ export class APIServer extends EventEmitter {
 
     // Fastify's instance type differs for HTTPS; we hold it as the common
     // FastifyInstance either way.
-    this.app = Fastify(fastifyOptions as unknown as FastifyServerOptions) as unknown as FastifyInstance
+    this.app = Fastify(
+      fastifyOptions as unknown as FastifyServerOptions
+    ) as unknown as FastifyInstance
   }
 
   /**
@@ -157,7 +165,9 @@ export class APIServer extends EventEmitter {
 
     const printHost = host === '0.0.0.0' ? 'localhost' : host
     const protocol = this.options.https ? 'https' : 'http'
-    console.info(`MailDev API running at ${protocol}://${printHost}:${boundPort}${this.options.basePath ?? ''}`)
+    console.info(
+      `MailDev API running at ${protocol}://${printHost}:${boundPort}${this.options.basePath ?? ''}`
+    )
 
     this.emit('listening', { port: boundPort, host })
   }
@@ -345,29 +355,26 @@ export class APIServer extends EventEmitter {
     })
 
     // Get single email
-    this.app.get<{ Params: { id: string } }>(
-      `${apiPath}/email/:id`,
-      async (request, reply) => {
-        const { id } = request.params
+    this.app.get<{ Params: { id: string } }>(`${apiPath}/email/:id`, async (request, reply) => {
+      const { id } = request.params
 
-        const storage = this.storageForHost(request.headers.host)
-        const email = await storage.getById(id)
-        if (!email) {
-          return reply.status(404).send({ error: 'Email was not found' })
-        }
-
-        // Mark as read
-        if (!email.read) {
-          email.read = true
-          await storage.save(email)
-          // Let other tabs update their list and unread badge; the tab that
-          // opened the email has already done so optimistically.
-          this.emitForHost('readMail', { id }, request.headers.host)
-        }
-
-        return email
+      const storage = this.storageForHost(request.headers.host)
+      const email = await storage.getById(id)
+      if (!email) {
+        return reply.status(404).send({ error: 'Email was not found' })
       }
-    )
+
+      // Mark as read
+      if (!email.read) {
+        email.read = true
+        await storage.save(email)
+        // Let other tabs update their list and unread badge; the tab that
+        // opened the email has already done so optimistically.
+        this.emitForHost('readMail', { id }, request.headers.host)
+      }
+
+      return email
+    })
 
     // Delete single email
     this.app.delete<{ Params: { id: string } }>(`${apiPath}/email/:id`, async (request, reply) => {
@@ -576,9 +583,12 @@ export class APIServer extends EventEmitter {
 
           // Override recipient if specified
           if (relayTo) {
-            const emailRegexp = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+            const emailRegexp =
+              /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
             if (!emailRegexp.test(relayTo)) {
-              return reply.status(400).send({ error: `Incorrect email address provided: ${relayTo}` })
+              return reply
+                .status(400)
+                .send({ error: `Incorrect email address provided: ${relayTo}` })
             }
             email.to = [{ address: relayTo }]
             email.envelope.to = [{ address: relayTo, args: false }]
@@ -697,6 +707,10 @@ export class APIServer extends EventEmitter {
       this.emitForHost('newMail', toSummary(email), email.envelope.host)
     })
 
+    this.smtp.on('relay', (data: { id: string; host?: string }) => {
+      this.emitForHost('relayMail', { id: data.id }, data.host)
+    })
+
     this.smtp.on('delete', (data: { id: string; index?: number; host?: string }) => {
       this.emitForHost('deleteMail', data, data.host)
     })
@@ -780,18 +794,12 @@ export class APIServer extends EventEmitter {
     // POST /mcp - Handle JSON-RPC requests
     this.app.post(`${basePath}/mcp`, async (request, reply) => {
       const sessionId = request.headers['mcp-session-id'] as string | undefined
-      const host = this.options.virtualHost
-        ? normalizeVirtualHost(request.headers.host)
-        : undefined
+      const host = this.options.virtualHost ? normalizeVirtualHost(request.headers.host) : undefined
 
       try {
         let transport = sessionId ? this.mcpTransports.get(sessionId) : undefined
 
-        if (
-          sessionId &&
-          this.options.virtualHost &&
-          this.mcpHosts.get(sessionId) !== host
-        ) {
+        if (sessionId && this.options.virtualHost && this.mcpHosts.get(sessionId) !== host) {
           return reply.status(400).send({ error: 'MCP session belongs to another virtual host' })
         }
 

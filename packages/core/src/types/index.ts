@@ -6,6 +6,7 @@ export type {
   Envelope,
   EmailPriority,
   Email,
+  RelayHistoryEntry,
   EmailInput,
   EmailSummary,
 } from './email.js'

@@ -138,9 +138,12 @@ describe('virtual host API isolation', () => {
 
       source.emit('new', makeEmail('alpha-mail', 'alpha.test'))
       source.emit('delete', { id: 'alpha-mail', host: 'alpha.test' })
+      source.emit('relay', { id: 'alpha-mail', host: 'alpha.test' })
 
       expect(targeted).toHaveBeenNthCalledWith(1, 'virtual-host:alpha.test')
       expect(targeted).toHaveBeenNthCalledWith(2, 'virtual-host:alpha.test')
+      expect(targeted).toHaveBeenNthCalledWith(3, 'virtual-host:alpha.test')
+      expect(targeted).toHaveBeenCalledTimes(3)
       expect(broadcast).not.toHaveBeenCalled()
     } finally {
       await source.stop()
@@ -161,12 +164,14 @@ describe('virtual host API isolation', () => {
       const alpha = storage.forHost('alpha.test')
       await alpha.initialize()
       const email = makeEmail('alpha-mail', 'alpha.test')
-      email.attachments = [{
-        filename: 'attachment.txt',
-        generatedFileName: 'attachment.txt',
-        contentType: 'text/plain',
-        contentDisposition: 'attachment',
-      }]
+      email.attachments = [
+        {
+          filename: 'attachment.txt',
+          generatedFileName: 'attachment.txt',
+          contentType: 'text/plain',
+          contentDisposition: 'attachment',
+        },
+      ]
       await alpha.save(email)
       await writeFile(
         join(mailDir, 'alpha.test', 'alpha-mail.eml'),
@@ -179,7 +184,10 @@ describe('virtual host API isolation', () => {
           '',
         ].join('\r\n')
       )
-      await writeFile(join(mailDir, 'alpha.test', 'alpha-mail', 'attachment.txt'), 'attachment body')
+      await writeFile(
+        join(mailDir, 'alpha.test', 'alpha-mail', 'attachment.txt'),
+        'attachment body'
+      )
 
       destination = new SMTPServer({
         storage: destinationStorage,
@@ -231,7 +239,9 @@ describe('virtual host API isolation', () => {
       expect(original?.to).toEqual([{ address: 'recipient@example.com' }])
       expect(original?.envelope.to).toEqual([{ address: 'recipient@example.com' }])
       expect(original?.relayedTo).toEqual(['override@example.net'])
-      expect((await destinationStorage.getAll())[0]?.envelope.to[0]?.address).toBe('override@example.net')
+      expect((await destinationStorage.getAll())[0]?.envelope.to[0]?.address).toBe(
+        'override@example.net'
+      )
 
       await destination.stop()
       destination = undefined
@@ -241,7 +251,9 @@ describe('virtual host API isolation', () => {
         headers: { host: 'alpha.test' },
       })
       expect(failedRelay.statusCode).toBe(500)
-      expect((await alpha.getById('alpha-mail'))?.to).toEqual([{ address: 'recipient@example.com' }])
+      expect((await alpha.getById('alpha-mail'))?.to).toEqual([
+        { address: 'recipient@example.com' },
+      ])
       expect((await alpha.getById('alpha-mail'))?.relayedTo).toEqual(['override@example.net'])
     } finally {
       await source?.stop()

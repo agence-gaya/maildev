@@ -41,10 +41,7 @@ export function useEmailList() {
   })
 
   const pages = query.data?.pages
-  const items: EmailSummary[] = useMemo(
-    () => pages?.flatMap((page) => page.items) ?? [],
-    [pages]
-  )
+  const items: EmailSummary[] = useMemo(() => pages?.flatMap((page) => page.items) ?? [], [pages])
 
   // Counts come from the most recent page, so they reflect the latest fetch
   const latest = pages?.[pages.length - 1]
@@ -214,8 +211,8 @@ export function useRelayEmail() {
     mutationFn: ({ id, relayTo }: { id: string; relayTo?: string }) =>
       api.emails.relay(id, relayTo),
     onSuccess: (_data, { id }) => {
-      // Refetch the email so the newly recorded relay status (relayedAt /
-      // relayedTo) shows without waiting for the next poll.
+      // Refetch the email so the newly recorded relay history shows without
+      // waiting for the next poll.
       queryClient.invalidateQueries({ queryKey: ['email', id] })
       queryClient.invalidateQueries({ queryKey: ['emails'] })
     },
@@ -246,4 +243,3 @@ export function useRefreshEmails() {
     isRefreshing: fetchingCount > 0,
   }
 }
-

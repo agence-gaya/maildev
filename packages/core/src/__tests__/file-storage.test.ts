@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -133,9 +133,7 @@ describe('FileStorage', () => {
       await storage.initialize()
 
       const relayedAt = new Date('2026-01-02T03:04:05.000Z')
-      await storage.save(
-        createTestEmail('relayed', { relayedAt, relayedTo: ['b@example.com'] })
-      )
+      await storage.save(createTestEmail('relayed', { relayedAt, relayedTo: ['b@example.com'] }))
       await writeEmailFiles('relayed')
 
       expect(existsSync(join(mailDirectory, 'relayed.meta.json'))).toBe(true)
@@ -143,6 +141,83 @@ describe('FileStorage', () => {
       const meta = await storage.readMetadata('relayed')
       expect(meta?.relayedAt).toEqual(relayedAt)
       expect(meta?.relayedTo).toEqual(['b@example.com'])
+      expect(meta?.relayHistory).toEqual([{ relayedAt, relayedTo: ['b@example.com'] }])
+    })
+
+    it('appends concurrent relays without losing updates or leaving temporary files', async () => {
+      storage = new FileStorage({ mailDirectory })
+      await storage.initialize()
+      await storage.save(createTestEmail('concurrent'))
+
+      await Promise.all(
+        Array.from({ length: 20 }, (_, index) =>
+          storage.recordRelay('concurrent', {
+            relayedAt: new Date(1_700_000_000_000 + index),
+            relayedTo: [`recipient-${index}@example.com`],
+          })
+        )
+      )
+
+      const metadata = await storage.readMetadata('concurrent')
+      expect(metadata?.relayHistory).toHaveLength(20)
+      expect(metadata?.relayHistory?.map((relay) => relay.relayedTo[0])).toEqual(
+        Array.from({ length: 20 }, (_, index) => `recipient-${index}@example.com`)
+      )
+      expect(metadata?.relayedAt).toEqual(metadata?.relayHistory?.at(-1)?.relayedAt)
+      expect(await readdir(mailDirectory)).toEqual(['concurrent.meta.json'])
+      expect(
+        JSON.parse(await readFile(join(mailDirectory, 'concurrent.meta.json'), 'utf8'))
+      ).toHaveProperty('relayHistory')
+    })
+
+    it('converts the legacy last-relay fields into a one-entry history', async () => {
+      storage = new FileStorage({ mailDirectory })
+      await storage.initialize()
+      await writeFile(
+        join(mailDirectory, 'legacy.meta.json'),
+        JSON.stringify({ relayedAt: '2026-10-29T00:06:02.707Z', relayedTo: ['jliebert@gaya.fr'] })
+      )
+
+      const metadata = await storage.readMetadata('legacy')
+      expect(metadata?.relayHistory).toEqual([
+        {
+          relayedAt: new Date('2026-10-29T00:06:02.707Z'),
+          relayedTo: ['jliebert@gaya.fr'],
+        },
+      ])
+    })
+
+    it('does not recreate relay metadata when deletion races with a relay', async () => {
+      storage = new FileStorage({ mailDirectory })
+      await storage.initialize()
+      await storage.save(createTestEmail('deleted'))
+
+      await Promise.all([
+        storage.recordRelay('deleted', {
+          relayedAt: new Date(),
+          relayedTo: ['b@example.com'],
+        }),
+        storage.delete('deleted'),
+      ])
+
+      expect(await storage.getById('deleted')).toBeUndefined()
+      expect(existsSync(join(mailDirectory, 'deleted.meta.json'))).toBe(false)
+    })
+
+    it('cleans up the temporary sidecar when an atomic replacement fails', async () => {
+      storage = new FileStorage({ mailDirectory })
+      await storage.initialize()
+      await storage.save(createTestEmail('broken'))
+      await mkdir(join(mailDirectory, 'broken.meta.json'))
+
+      await expect(
+        storage.recordRelay('broken', {
+          relayedAt: new Date(),
+          relayedTo: ['b@example.com'],
+        })
+      ).rejects.toThrow()
+
+      expect(await readdir(mailDirectory)).toEqual(['broken.meta.json'])
     })
 
     it('writes no sidecar for an email with no persisted metadata', async () => {

@@ -54,9 +54,11 @@ export function EmailHeader({ email }: EmailHeaderProps) {
   const toAddresses = email.to?.map(formatEmailAddress).join(', ') ?? ''
   const ccAddresses = email.cc?.map(formatEmailAddress).join(', ')
   const bccAddresses = email.calculatedBcc?.map(formatEmailAddress).join(', ')
-  const relayedToDisplay = email.relayedTo?.length
-    ? email.relayedTo.join(', ')
-    : 'original recipients'
+  const relayHistory = email.relayHistory?.length
+    ? email.relayHistory
+    : email.relayedAt
+      ? [{ relayedAt: email.relayedAt, relayedTo: email.relayedTo ?? [] }]
+      : []
 
   const handleDelete = async () => {
     await deleteMutation.mutateAsync(email.id)
@@ -113,7 +115,10 @@ export function EmailHeader({ email }: EmailHeaderProps) {
 
           {/* Email info */}
           <div className="min-w-0 flex-1">
-            <h1 data-testid="email-subject" className="text-lg font-semibold text-[hsl(var(--foreground))]">
+            <h1
+              data-testid="email-subject"
+              className="text-lg font-semibold text-[hsl(var(--foreground))]"
+            >
               {email.subject || '(no subject)'}
             </h1>
             <div className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">
@@ -139,33 +144,42 @@ export function EmailHeader({ email }: EmailHeaderProps) {
               )}
             </div>
 
-            {/* Relay status - shown once the email has been relayed */}
-            {email.relayedAt && (
+            {/* Relay history - each successful delivery is shown separately */}
+            {relayHistory.length > 0 && (
               <div
                 data-testid="email-relayed-status"
-                className="mt-2 flex items-center gap-1.5 text-xs text-[hsl(var(--muted-foreground))]"
+                className="mt-2 space-y-1 text-xs text-[hsl(var(--muted-foreground))]"
               >
-                <svg
-                  className="h-3.5 w-3.5 flex-shrink-0 text-[hsl(var(--primary))]"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-                  />
-                </svg>
-                <span>
-                  Relayed to{' '}
-                  <span className="font-medium text-[hsl(var(--foreground))]">
-                    {relayedToDisplay}
-                  </span>{' '}
-                  · {formatDate(email.relayedAt)}
-                </span>
+                {relayHistory.map((relay, index) => (
+                  <div
+                    key={`${String(relay.relayedAt)}-${index}`}
+                    className="flex items-center gap-1.5"
+                  >
+                    <svg
+                      className="h-3.5 w-3.5 flex-shrink-0 text-[hsl(var(--primary))]"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                      />
+                    </svg>
+                    <span>
+                      Relayed to{' '}
+                      <span className="font-medium text-[hsl(var(--foreground))]">
+                        {relay.relayedTo.length
+                          ? relay.relayedTo.join(', ')
+                          : 'original recipients'}
+                      </span>{' '}
+                      · {formatDate(relay.relayedAt)}
+                    </span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -185,12 +199,7 @@ export function EmailHeader({ email }: EmailHeaderProps) {
               aria-label="Download email"
               data-testid="download-email-button"
             >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -214,12 +223,7 @@ export function EmailHeader({ email }: EmailHeaderProps) {
                   )}
                   aria-label="Relay email"
                 >
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -256,7 +260,12 @@ export function EmailHeader({ email }: EmailHeaderProps) {
                       onClick={() => setShowCustomRelayInput(true)}
                       className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-[hsl(var(--muted))]"
                     >
-                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg
+                        className="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
                         <path
                           strokeLinecap="round"
                           strokeLinejoin="round"
@@ -330,12 +339,7 @@ export function EmailHeader({ email }: EmailHeaderProps) {
               aria-label="Delete email"
               data-testid="delete-email-button"
             >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -364,12 +368,7 @@ export function EmailHeader({ email }: EmailHeaderProps) {
                   'hover:bg-[hsl(var(--muted))]'
                 )}
               >
-                <svg
-                  className="h-3.5 w-3.5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"

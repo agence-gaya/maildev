@@ -8,6 +8,7 @@ import type {
   StorageOptions,
   StorageQuery,
   StorageStats,
+  RelayHistoryEntry,
 } from '../types/index.js'
 import { filterEmails, matchesSearchTerm } from '../utils/filter.js'
 
@@ -69,7 +70,17 @@ export class MemoryStorage extends EventEmitter implements Storage {
       if (existing.read !== email.read) {
         this.unreadCount += email.read ? -1 : 1
       }
-      this.emails.set(email.id, email)
+      this.emails.set(
+        email.id,
+        existing.relayHistory || existing.relayedAt
+          ? {
+              ...email,
+              ...(existing.relayedAt ? { relayedAt: existing.relayedAt } : {}),
+              ...(existing.relayedTo ? { relayedTo: existing.relayedTo } : {}),
+              ...(existing.relayHistory ? { relayHistory: existing.relayHistory } : {}),
+            }
+          : email
+      )
       return
     }
 
@@ -80,6 +91,30 @@ export class MemoryStorage extends EventEmitter implements Storage {
     this.emit('add', email)
 
     await this.evictOverflow()
+  }
+
+  /** Append a successful relay without relying on a potentially stale email snapshot */
+  async recordRelay(id: string, relay: RelayHistoryEntry): Promise<Email | undefined> {
+    const existing = this.emails.get(id)
+    if (!existing) {
+      return undefined
+    }
+
+    const relayHistory = [
+      ...(existing.relayHistory ??
+        (existing.relayedAt
+          ? [{ relayedAt: existing.relayedAt, relayedTo: existing.relayedTo ?? [] }]
+          : [])),
+      { relayedAt: new Date(relay.relayedAt), relayedTo: [...relay.relayedTo] },
+    ]
+    const updated: Email = {
+      ...existing,
+      relayHistory,
+      relayedAt: relayHistory[relayHistory.length - 1]!.relayedAt,
+      relayedTo: [...relayHistory[relayHistory.length - 1]!.relayedTo],
+    }
+    this.emails.set(id, updated)
+    return updated
   }
 
   /**

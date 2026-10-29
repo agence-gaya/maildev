@@ -12,7 +12,17 @@ import { mkdir, rm, readdir, readFile, writeFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { PassThrough, Transform, type Readable } from 'node:stream'
-import { formatBytes, calculateBcc, makeId, mapLimit, normalizeVirtualHost, type Storage, type Email, type EmailMetadata, type Attachment } from '@maildev/core'
+import {
+  formatBytes,
+  calculateBcc,
+  makeId,
+  mapLimit,
+  normalizeVirtualHost,
+  type Storage,
+  type Email,
+  type EmailMetadata,
+  type Attachment,
+} from '@maildev/core'
 import { parseEmailStream, parseEmailBuffer } from './parser.js'
 import { createAuthCallback } from './auth.js'
 import { createLogger } from './logger.js'
@@ -65,12 +75,7 @@ interface EmlFile {
   mtimeMs: number
 }
 
-const HIDEABLE_EXTENSIONS: HideableExtension[] = [
-  'STARTTLS',
-  'PIPELINING',
-  '8BITMIME',
-  'SMTPUTF8',
-]
+const HIDEABLE_EXTENSIONS: HideableExtension[] = ['STARTTLS', 'PIPELINING', '8BITMIME', 'SMTPUTF8']
 
 /**
  * MailDev SMTP Server
@@ -302,7 +307,9 @@ export class SMTPServer extends EventEmitter {
    */
   async getRawEmail(id: string, host?: string): Promise<Readable> {
     const email = await this.getEmail(id, host)
-    return createReadStream(join(this.mailDirectoryForHost(email.envelope.host ?? host), `${email.id}.eml`))
+    return createReadStream(
+      join(this.mailDirectoryForHost(email.envelope.host ?? host), `${email.id}.eml`)
+    )
   }
 
   /**
@@ -337,7 +344,9 @@ export class SMTPServer extends EventEmitter {
     if (result) {
       this.emit('delete', {
         id,
-        ...(this.options.virtualHost ? { host: normalizeVirtualHost(email.envelope.host ?? host) } : {}),
+        ...(this.options.virtualHost
+          ? { host: normalizeVirtualHost(email.envelope.host ?? host) }
+          : {}),
       })
     }
 
@@ -375,9 +384,7 @@ export class SMTPServer extends EventEmitter {
       throw new Error('Email has no attachments')
     }
 
-    const attachment = email.attachments.find(
-      (a) => a.generatedFileName === filename
-    )
+    const attachment = email.attachments.find((a) => a.generatedFileName === filename)
 
     if (!attachment) {
       throw new Error('Attachment not found')
@@ -416,7 +423,9 @@ export class SMTPServer extends EventEmitter {
     return {
       contentType: 'message/rfc822',
       filename: `${id}.eml`,
-      stream: createReadStream(join(this.mailDirectoryForHost(email.envelope.host ?? host), `${id}.eml`)),
+      stream: createReadStream(
+        join(this.mailDirectoryForHost(email.envelope.host ?? host), `${id}.eml`)
+      ),
     }
   }
 
@@ -428,9 +437,7 @@ export class SMTPServer extends EventEmitter {
       throw new Error('Outgoing mail not configured')
     }
 
-    const email = typeof idOrEmail === 'string'
-      ? await this.getEmail(idOrEmail, host)
-      : idOrEmail
+    const email = typeof idOrEmail === 'string' ? await this.getEmail(idOrEmail, host) : idOrEmail
 
     const rawStream = await this.getRawEmail(email.id, email.envelope.host)
     const result = await this.relayClient.relay(email, rawStream, isAutoRelay)
@@ -442,16 +449,18 @@ export class SMTPServer extends EventEmitter {
       return
     }
 
-    // Record the successful relay on the stored email so the API and UI can
-    // tell whether (and where) a message was delivered.
+    // Append the successful relay to the stored email. The storage operation
+    // updates the current value, rather than this possibly stale email snapshot.
     const storage = this.storageForHost(email.envelope.host)
-    const storedEmail = await storage.getById(email.id)
+    const relay = {
+      relayedAt: new Date(),
+      relayedTo: result.recipients ?? [],
+    }
+    const storedEmail = await storage.recordRelay(email.id, relay)
     if (!storedEmail) {
       return
     }
-    storedEmail.relayedAt = new Date()
-    storedEmail.relayedTo = result.recipients ?? []
-    await storage.save(storedEmail)
+    this.emit('relay', { id: storedEmail.id, host: storedEmail.envelope.host })
   }
 
   /**
@@ -465,7 +474,7 @@ export class SMTPServer extends EventEmitter {
     const hosts = this.options.virtualHost
       ? host
         ? [normalizeVirtualHost(host)]
-        : await this.storage.getHosts?.() ?? []
+        : ((await this.storage.getHosts?.()) ?? [])
       : [undefined]
 
     for (const currentHost of hosts) {
@@ -473,11 +482,7 @@ export class SMTPServer extends EventEmitter {
       if (this.options.virtualHost) {
         await storage.initialize()
       }
-      await this.restoreMailDirectory(
-        this.mailDirectoryForHost(currentHost),
-        currentHost,
-        storage
-      )
+      await this.restoreMailDirectory(this.mailDirectoryForHost(currentHost), currentHost, storage)
     }
   }
 
@@ -573,7 +578,7 @@ export class SMTPServer extends EventEmitter {
     }
 
     if (this.options.virtualHost) {
-      const hosts = await this.storage.getHosts?.() ?? []
+      const hosts = (await this.storage.getHosts?.()) ?? []
       let removed = 0
       for (const host of hosts) {
         removed += await this.pruneMailDirectory(this.mailDirectoryForHost(host), keep)
@@ -596,7 +601,7 @@ export class SMTPServer extends EventEmitter {
     const task = (async () => {
       const cutoff = Date.now() - maxAgeHours * HOUR_MS
       const hosts = this.options.virtualHost
-        ? await this.storage.getHosts?.() ?? []
+        ? ((await this.storage.getHosts?.()) ?? [])
         : [undefined]
       let deleted = 0
 
@@ -631,7 +636,6 @@ export class SMTPServer extends EventEmitter {
   }
 
   private async pruneMailDirectory(mailDir: string, keep: number): Promise<number> {
-
     let files: EmlFile[]
     try {
       files = await this.listEmlFiles(mailDir)
@@ -645,10 +649,12 @@ export class SMTPServer extends EventEmitter {
     }
 
     const stale = files.slice(keep)
-    await mapLimit(stale, FS_CONCURRENCY, (file) => this.removeEmailFiles(file.id, undefined, mailDir))
+    await mapLimit(stale, FS_CONCURRENCY, (file) =>
+      this.removeEmailFiles(file.id, undefined, mailDir)
+    )
 
     this.logger.warn(
-        `Removed ${stale.length} old email(s) from ${mailDir} (keeping the newest ${keep})`
+      `Removed ${stale.length} old email(s) from ${mailDir} (keeping the newest ${keep})`
     )
 
     return stale.length
@@ -730,9 +736,7 @@ export class SMTPServer extends EventEmitter {
   /**
    * Get hide extension options for smtp-server
    */
-  private getHideExtensionOptions(
-    extensions: HideableExtension[]
-  ): Record<string, boolean> {
+  private getHideExtensionOptions(extensions: HideableExtension[]): Record<string, boolean> {
     const options: Record<string, boolean> = {}
 
     for (const ext of extensions) {
@@ -783,9 +787,10 @@ export class SMTPServer extends EventEmitter {
     // completes) and records that the message was truncated so it can be
     // rejected below. Well-behaved clients that declare an oversized SIZE are
     // already refused earlier by smtp-server's `size` option.
-    const limit = this.options.maxMessageSize && this.options.maxMessageSize > 0
-      ? this.options.maxMessageSize
-      : 0
+    const limit =
+      this.options.maxMessageSize && this.options.maxMessageSize > 0
+        ? this.options.maxMessageSize
+        : 0
     const sizeState = { exceeded: false }
     const source = limit ? stream.pipe(this.createSizeCap(limit, sizeState)) : stream
 
@@ -808,7 +813,9 @@ export class SMTPServer extends EventEmitter {
     // a partial.
     if (sizeState.exceeded) {
       await rm(emlPath, { force: true })
-      const error = new Error('Message exceeds maximum allowed size') as Error & { responseCode?: number }
+      const error = new Error('Message exceeds maximum allowed size') as Error & {
+        responseCode?: number
+      }
       error.responseCode = 552 // permanent: exceeded storage allocation
       throw error
     }
@@ -824,7 +831,10 @@ export class SMTPServer extends EventEmitter {
 
     const envelope: StoredEnvelope = {
       from: sessionMailFrom
-        ? { address: sessionMailFrom.address, args: sessionMailFrom.args as Record<string, string | boolean> | false }
+        ? {
+            address: sessionMailFrom.address,
+            args: sessionMailFrom.args as Record<string, string | boolean> | false,
+          }
         : false,
       to: (sessionRcptTo || []).map((addr) => ({
         address: addr.address,
@@ -918,11 +928,7 @@ export class SMTPServer extends EventEmitter {
     const toAddresses = parsed.to || []
     const ccAddresses = parsed.cc || []
 
-    const calculatedBcc = calculateBcc(
-      envelopeToAddresses,
-      toAddresses,
-      ccAddresses
-    )
+    const calculatedBcc = calculateBcc(envelopeToAddresses, toAddresses, ccAddresses)
 
     // Build email object, only including optional fields if they have values
     const email: Email = {
@@ -967,6 +973,12 @@ export class SMTPServer extends EventEmitter {
     if (metadata?.relayedAt) {
       email.relayedAt = metadata.relayedAt
       email.relayedTo = metadata.relayedTo ?? []
+      email.relayHistory = metadata.relayHistory ?? [
+        {
+          relayedAt: metadata.relayedAt,
+          relayedTo: metadata.relayedTo ?? [],
+        },
+      ]
     }
 
     await storage.save(email)
@@ -1059,9 +1071,7 @@ export class SMTPServer extends EventEmitter {
   private handleServerError(err: NodeJS.ErrnoException): void {
     // ECONNRESET is common when clients disconnect unexpectedly
     if (err.code === 'ECONNRESET' && err.syscall === 'read') {
-      this.logger.warn(
-        `Ignoring "${err.message}" error - client likely disconnected`
-      )
+      this.logger.warn(`Ignoring "${err.message}" error - client likely disconnected`)
       this.logger.debug?.(err)
     } else {
       // Do not throw: this runs from an event callback, so a throw is uncaught
@@ -1126,9 +1136,7 @@ export class SMTPServer extends EventEmitter {
    */
   private async listEmlFiles(mailDir = this.mailDir): Promise<EmlFile[]> {
     const entries = await readdir(mailDir, { withFileTypes: true })
-    const emlEntries = entries.filter(
-      (entry) => entry.isFile() && entry.name.endsWith('.eml')
-    )
+    const emlEntries = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.eml'))
 
     const files = await mapLimit(emlEntries, FS_CONCURRENCY, async (entry) => {
       try {
@@ -1192,21 +1200,24 @@ function isEnvelopeAddress(value: unknown): value is EnvelopeAddress {
 
   const name = value.name
   const args = value.args
-  return (name === undefined || typeof name === 'string') && (
-    args === undefined || args === false || (
-      isRecord(args) && Object.values(args).every(
-        (arg) => typeof arg === 'string' || typeof arg === 'boolean'
-      )
-    )
+  return (
+    (name === undefined || typeof name === 'string') &&
+    (args === undefined ||
+      args === false ||
+      (isRecord(args) &&
+        Object.values(args).every((arg) => typeof arg === 'string' || typeof arg === 'boolean')))
   )
 }
 
 function isStoredEnvelope(value: unknown): value is StoredEnvelope {
-  return isRecord(value) &&
+  return (
+    isRecord(value) &&
     (value.from === false || isEnvelopeAddress(value.from)) &&
-    Array.isArray(value.to) && value.to.every(isEnvelopeAddress) &&
+    Array.isArray(value.to) &&
+    value.to.every(isEnvelopeAddress) &&
     (value.host === undefined || typeof value.host === 'string') &&
     (value.remoteAddress === undefined || typeof value.remoteAddress === 'string')
+  )
 }
 
 async function readStoredEnvelope(filePath: string): Promise<StoredEnvelope | null> {

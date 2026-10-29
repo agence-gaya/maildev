@@ -53,6 +53,27 @@ describe('EmailHeader relay status', () => {
     )
   })
 
+  it('shows every successful relay in the history', () => {
+    render(
+      <EmailHeader
+        email={{
+          ...baseEmail,
+          relayedAt: new Date('2026-10-29T00:06:02.707Z'),
+          relayedTo: ['c@example.com'],
+          relayHistory: [
+            { relayedAt: new Date('2026-10-28T23:00:00.000Z'), relayedTo: ['b@example.com'] },
+            { relayedAt: new Date('2026-10-29T00:06:02.707Z'), relayedTo: ['c@example.com'] },
+          ],
+        }}
+      />
+    )
+
+    const status = screen.getByTestId('email-relayed-status')
+    expect(status.textContent).toContain('b@example.com')
+    expect(status.textContent).toContain('c@example.com')
+    expect(status.querySelectorAll('div')).toHaveLength(2)
+  })
+
   it('renders no relay status for an email that was never relayed', () => {
     render(<EmailHeader email={baseEmail} />)
 

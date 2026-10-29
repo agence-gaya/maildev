@@ -38,10 +38,20 @@ describe('relay delivery status', () => {
     sourcePort = await freePort()
     destPort = await freePort()
 
-    dest = new SMTPServer({ storage: destStore, mailDir: destDir, port: destPort, host: '127.0.0.1' })
+    dest = new SMTPServer({
+      storage: destStore,
+      mailDir: destDir,
+      port: destPort,
+      host: '127.0.0.1',
+    })
     await dest.start()
 
-    source = new SMTPServer({ storage: sourceStore, mailDir: sourceDir, port: sourcePort, host: '127.0.0.1' })
+    source = new SMTPServer({
+      storage: sourceStore,
+      mailDir: sourceDir,
+      port: sourcePort,
+      host: '127.0.0.1',
+    })
     await source.start()
     source.setupRelay({ host: '127.0.0.1', port: destPort, secure: false })
     source.setAutoRelay({ enabled: true })
@@ -70,6 +80,9 @@ describe('relay delivery status', () => {
     const stored = (await sourceStore.getAll())[0]!
     expect(stored.relayedAt).toBeInstanceOf(Date)
     expect(stored.relayedTo).toContain('b@example.com')
+    expect(stored.relayHistory).toEqual([
+      expect.objectContaining({ relayedAt: expect.any(Date), relayedTo: ['b@example.com'] }),
+    ])
 
     // The relay actually delivered it downstream.
     expect(await destStore.getAll()).toHaveLength(1)
@@ -88,7 +101,12 @@ describe('relay delivery status', () => {
     await source.stop()
     const fileStore = new FileStorage({ mailDirectory: sourceDir })
     await fileStore.initialize()
-    source = new SMTPServer({ storage: fileStore, mailDir: sourceDir, port: sourcePort, host: '127.0.0.1' })
+    source = new SMTPServer({
+      storage: fileStore,
+      mailDir: sourceDir,
+      port: sourcePort,
+      host: '127.0.0.1',
+    })
     await source.start()
     source.setupRelay({ host: '127.0.0.1', port: destPort, secure: false })
     source.setAutoRelay({ enabled: true })
@@ -101,11 +119,19 @@ describe('relay delivery status', () => {
     await source.stop()
     const restoredStore = new FileStorage({ mailDirectory: sourceDir })
     await restoredStore.initialize()
-    source = new SMTPServer({ storage: restoredStore, mailDir: sourceDir, port: sourcePort, host: '127.0.0.1' })
+    source = new SMTPServer({
+      storage: restoredStore,
+      mailDir: sourceDir,
+      port: sourcePort,
+      host: '127.0.0.1',
+    })
     await source.loadMailsFromDirectory()
 
     const restored = (await restoredStore.getById(id))!
     expect(restored.relayedAt).toBeInstanceOf(Date)
     expect(restored.relayedTo).toContain('b@example.com')
+    expect(restored.relayHistory).toEqual([
+      expect.objectContaining({ relayedAt: expect.any(Date), relayedTo: ['b@example.com'] }),
+    ])
   })
 })

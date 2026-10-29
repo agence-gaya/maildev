@@ -50,6 +50,12 @@ export interface Envelope {
   remoteAddress?: string
 }
 
+/** A successful delivery attempt to the outgoing mail server */
+export interface RelayHistoryEntry {
+  relayedAt: Date
+  relayedTo: string[]
+}
+
 /**
  * Email priority level
  */
@@ -105,6 +111,8 @@ export interface Email {
   relayedAt?: Date
   /** Recipients the email was delivered to on the last successful relay */
   relayedTo?: string[]
+  /** All successful relay attempts, oldest first */
+  relayHistory?: RelayHistoryEntry[]
 }
 
 /**

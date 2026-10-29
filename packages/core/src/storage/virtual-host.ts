@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type {
   Email,
   EmailMetadata,
+  RelayHistoryEntry,
   EvictHandler,
   ListOptions,
   ListResult,
@@ -65,6 +66,10 @@ export class VirtualHostStorage implements Storage {
 
   async save(email: Email): Promise<void> {
     return this.defaultStorage().save(email)
+  }
+
+  async recordRelay(id: string, relay: RelayHistoryEntry): Promise<Email | undefined> {
+    return this.defaultStorage().recordRelay(id, relay)
   }
 
   async delete(id: string): Promise<boolean> {

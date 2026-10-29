@@ -54,11 +54,13 @@ export function useSocket() {
   const notificationsEnabled = useUIStore((state) => state.notificationsEnabled)
   const autoShowNewMail = useUIStore((state) => state.autoShowNewMail)
   const setSelectedEmail = useUIStore((state) => state.setSelectedEmail)
+  const selectedEmailId = useUIStore((state) => state.selectedEmailId)
 
   // Store refs to avoid dependency issues
   const notificationsEnabledRef = useRef(notificationsEnabled)
   const autoShowNewMailRef = useRef(autoShowNewMail)
   const setSelectedEmailRef = useRef(setSelectedEmail)
+  const selectedEmailIdRef = useRef(selectedEmailId)
 
   useEffect(() => {
     notificationsEnabledRef.current = notificationsEnabled
@@ -71,6 +73,10 @@ export function useSocket() {
   useEffect(() => {
     setSelectedEmailRef.current = setSelectedEmail
   }, [setSelectedEmail])
+
+  useEffect(() => {
+    selectedEmailIdRef.current = selectedEmailId
+  }, [selectedEmailId])
 
   useEffect(() => {
     // Connect to Socket.io
@@ -96,6 +102,10 @@ export function useSocket() {
 
     socket.on('connect', () => {
       console.log('Socket.io connected')
+      scheduleRefresh()
+      if (selectedEmailIdRef.current) {
+        queryClient.invalidateQueries({ queryKey: ['email', selectedEmailIdRef.current] })
+      }
     })
 
     socket.on('disconnect', () => {
@@ -120,6 +130,10 @@ export function useSocket() {
     socket.on('deleteMail', (data: { id: string; index?: number }) => {
       scheduleRefresh()
       // Also invalidate the specific email query
+      queryClient.invalidateQueries({ queryKey: ['email', data.id] })
+    })
+
+    socket.on('relayMail', (data: { id: string }) => {
       queryClient.invalidateQueries({ queryKey: ['email', data.id] })
     })
 

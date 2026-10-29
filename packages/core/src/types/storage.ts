@@ -1,14 +1,14 @@
-import type { Email } from './email.js'
+import type { Email, RelayHistoryEntry } from './email.js'
 
 /**
  * Per-email state persisted outside the raw `.eml` message
  *
  * Everything here is state set after receipt that can't be recovered by
- * re-parsing the message (relay status today; a natural home for future
+ * re-parsing the message (relay history today; a natural home for future
  * mutable fields). Disk-backed storage writes it to a per-email metadata
  * sidecar and restores it on startup. Extend this type as fields are added.
  */
-export type EmailMetadata = Pick<Email, 'relayedAt' | 'relayedTo'>
+export type EmailMetadata = Pick<Email, 'relayedAt' | 'relayedTo' | 'relayHistory'>
 
 /**
  * Query object for filtering emails
@@ -117,6 +117,9 @@ export interface Storage {
    * @param email - Email to save
    */
   save(email: Email): Promise<void>
+
+  /** Record a successful relay against the current stored version of the email */
+  recordRelay(id: string, relay: RelayHistoryEntry): Promise<Email | undefined>
 
   /**
    * Delete an email by ID
