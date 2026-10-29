@@ -37,6 +37,7 @@ const ENV_MAPPING: Record<string, keyof PartialMailDevConfig> = {
   MAILDEV_AUTO_DELETE: 'autoDelete',
   MAILDEV_DOMAIN_FILTER_RULES: 'domainFilterRules',
   MAILDEV_VIRTUAL_HOST: 'virtualHost',
+  MAILDEV_VIRTUAL_HOST_PATH: 'virtualHostPath',
 
   // Storage
   MAILDEV_MAIL_DIRECTORY: 'mailDirectory',
@@ -68,6 +69,7 @@ const BOOLEAN_VARS = new Set([
   'MAILDEV_DISABLE_WEB',
   'MAILDEV_MCP',
   'MAILDEV_VIRTUAL_HOST',
+  'MAILDEV_VIRTUAL_HOST_PATH',
   'MAILDEV_VERBOSE',
   'MAILDEV_SILENT',
 ])
@@ -155,6 +157,7 @@ function envVarToConfigKey(envVar: string): keyof PartialMailDevConfig | null {
     silent: 'silent',
     mcp: 'mcp',
     virtualHost: 'virtualHost',
+    virtualHostPath: 'virtualHostPath',
   }
 
   return mapping[camelCase] || null

@@ -25,6 +25,8 @@ export interface APIServerOptions {
   storage: Storage
   /** Resolve inboxes from the HTTP Host header */
   virtualHost?: boolean
+  /** Select the HTTP virtual host from the first segment after basePath */
+  virtualHostPath?: boolean
   /** SMTP server instance for events (optional) */
   smtp?: SMTPServer
   /** Authentication configuration */

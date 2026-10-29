@@ -34,6 +34,55 @@ describe('validateConfig', () => {
     })
   })
 
+  describe('virtual host path validation', () => {
+    it('should reject mutually exclusive virtual host modes', () => {
+      const config = createConfig({
+        virtualHost: true,
+        virtualHostPath: true,
+        basePathname: '/maildev',
+      })
+      const result = validateConfig(config)
+
+      expect(result.valid).toBe(false)
+      expect(result.errors).toContainEqual({
+        field: 'virtualHostPath',
+        message: 'virtualHost and virtualHostPath are mutually exclusive',
+      })
+    })
+
+    it.each([undefined, false])(
+      'should accept virtualHostPath alone when virtualHost is %s',
+      (virtualHost) => {
+        const config = createConfig({
+          ...(virtualHost === undefined ? {} : { virtualHost }),
+          virtualHostPath: true,
+          basePathname: '/maildev',
+        })
+        const result = validateConfig(config)
+
+        expect(result.valid).toBe(true)
+        expect(result.errors).toHaveLength(0)
+      }
+    )
+
+    it.each([undefined, false, true])(
+      'should accept virtualHost=%s when virtualHostPath is disabled or absent',
+      (virtualHost) => {
+        for (const virtualHostPath of [undefined, false]) {
+          const result = validateConfig(
+            createConfig({
+              ...(virtualHost === undefined ? {} : { virtualHost }),
+              ...(virtualHostPath === undefined ? {} : { virtualHostPath }),
+            })
+          )
+
+          expect(result.valid).toBe(true)
+          expect(result.errors).toHaveLength(0)
+        }
+      }
+    )
+  })
+
   describe('port validation', () => {
     it('should reject invalid SMTP port (too low)', () => {
       const config = createConfig({ smtp: 0 })

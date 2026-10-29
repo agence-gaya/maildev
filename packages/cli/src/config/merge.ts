@@ -65,10 +65,10 @@ function cliOptionsToConfig(options: CLIOptions): PartialMailDevConfig {
   if (options.outgoingSecure !== undefined) config.outgoingSecure = options.outgoingSecure
   if (options.verbose !== undefined) config.verbose = options.verbose
   if (options.silent !== undefined) config.silent = options.silent
-  if (options.logMailContents !== undefined)
-    config.logMailContents = options.logMailContents
+  if (options.logMailContents !== undefined) config.logMailContents = options.logMailContents
   if (options.mcp !== undefined) config.mcp = options.mcp
   if (options.virtualHost !== undefined) config.virtualHost = options.virtualHost
+  if (options.virtualHostPath !== undefined) config.virtualHostPath = options.virtualHostPath
 
   // Auto-relay (can be boolean or string)
   if (options.autoRelay !== undefined) {
@@ -90,10 +90,7 @@ function cliOptionsToConfig(options: CLIOptions): PartialMailDevConfig {
  * Merge partial config into base config
  * Only overwrites defined values
  */
-function mergeConfig(
-  base: MailDevConfig,
-  partial: PartialMailDevConfig
-): MailDevConfig {
+function mergeConfig(base: MailDevConfig, partial: PartialMailDevConfig): MailDevConfig {
   const result = { ...base }
 
   for (const [key, value] of Object.entries(partial)) {

@@ -81,8 +81,14 @@ export function useSocket() {
   useEffect(() => {
     // Connect to Socket.io
     const socket = io({
-      path: `${getBasePath()}/socket.io`,
+      path:
+        document.querySelector<HTMLMetaElement>('meta[name="maildev-socket-path"]')?.content ??
+        `${getBasePath()}/socket.io`,
       transports: ['websocket', 'polling'],
+      auth: {
+        virtualHost: document.querySelector<HTMLMetaElement>('meta[name="maildev-virtual-host"]')
+          ?.content,
+      },
     })
 
     socketRef.current = socket

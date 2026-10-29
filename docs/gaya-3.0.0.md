@@ -33,27 +33,63 @@ fichiers `lib/*.js`.
 ## Fonctionnement des virtualhosts
 
 - Le client SMTP doit annoncer le domaine virtuel dans son nom EHLO/HELO
-  (`name` avec Nodemailer). Le navigateur et le proxy HTTP doivent conserver le
-  même domaine dans `Host`.
+  (`name` avec Nodemailer). Avec `--virtual-host`, le navigateur et le proxy HTTP doivent
+  conserver le même domaine dans `Host`.
 - La sélection est insensible à la casse, retire le port HTTP et le point DNS
   final. Les valeurs pouvant devenir des chemins de fichiers sont refusées.
 - Avec `MAILDEV_MAIL_DIRECTORY=/data`, un domaine `site.test.gaya.fr` utilise
   `/data/site.test.gaya.fr/` pour ses `.eml`, pièces jointes et métadonnées.
 - Listes, compteurs, lecture, suppression, téléchargements, relais et événements
   temps réel sont limités à ce domaine. La limite `maxEmails` est par domaine.
-- Le mode est désactivé par défaut. Sans `--virtual-host`, le stockage v3 habituel
-  reste utilisé.
+- Les deux modes sont désactivés par défaut. Sans `--virtual-host` ni
+  `--virtual-host-path`, le stockage v3 habituel reste utilisé.
 
-Ce cloisonnement n'est **pas une authentification** : un client choisit son EHLO
-ou son en-tête `Host`. Il faut donc conserver les contrôles d'accès réseau/proxy
-et, si nécessaire, l'authentification SMTP/HTTP. Les règles de domaine limitent
-les noms acceptés mais ne prouvent pas leur identité.
+### Sélection du virtualhost par chemin
+
+L'option booléenne `--virtual-host-path` (`config.virtualHostPath`) sélectionne
+le virtualhost de l'interface et de l'API dans le chemin URL plutôt que dans
+l'en-tête HTTP `Host`. Elle fonctionne seule : `--virtual-host` et
+`--virtual-host-path` sont deux modes alternatifs et mutuellement exclusifs.
+Leur activation simultanée, même depuis des sources de configuration différentes,
+est refusée au démarrage.
+
+Pour activer le mode par chemin :
+
+```sh
+maildev --virtual-host-path --base-pathname /maildev
+```
+
+L'activation équivalente par environnement utilise `MAILDEV_VIRTUAL_HOST_PATH=true`
+et `MAILDEV_BASE_PATHNAME=/maildev`, avec `MAILDEV_VIRTUAL_HOST` absente ou à `false`.
+`MAILDEV_VIRTUAL_HOST_PATH` accepte `true` (sans distinction de casse) ou `1`
+pour activer l'option ; `false` ou `0` la désactivent. La CLI est prioritaire
+sur l'environnement, lui-même prioritaire sur le fichier de configuration.
+
+Avec un proxy HTTPS sur `serveur`, l'adresse
+`https://serveur/maildev/alpha.test/` ouvre le virtualhost `alpha.test` ;
+l'interface et l'API utilisent le préfixe `/maildev/alpha.test/`.
+La sélection SMTP par EHLO/HELO reste inchangée : le client doit toujours
+annoncer `alpha.test`. Pour conserver la sélection HTTP fondée sur `Host`,
+utiliser uniquement `--virtual-host` (ou `MAILDEV_VIRTUAL_HOST=true`), en laissant
+`virtualHostPath` désactivé.
+
+Le transport Socket.IO reste commun sous `/maildev/socket.io/` et doit être
+transmis par le proxy. La page transmet le virtualhost sélectionné pendant la
+connexion et rejoint uniquement sa salle, sans paramètre HTTP de sélection
+du virtualhost.
+
+Ce cloisonnement des requêtes n'est **pas un mécanisme d'autorisation ni une
+authentification** : un client choisit son EHLO, son en-tête `Host` ou le
+virtualhost dans le chemin. Il faut donc conserver les contrôles d'accès
+réseau/proxy et, si nécessaire, l'authentification SMTP/HTTP. Les règles de
+domaine limitent les noms acceptés mais ne prouvent pas leur identité.
 
 ## Options GAYA conservées
 
 | CLI                            | Variable                      | Valeur/définition                                                                                                |
 | ------------------------------ | ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `--virtual-host`               | `MAILDEV_VIRTUAL_HOST`        | Booléen, désactivé par défaut.                                                                                   |
+| `--virtual-host`               | `MAILDEV_VIRTUAL_HOST`        | Booléen, désactivé par défaut. Sélection UI/API par `Host` ; exclusif avec `--virtual-host-path`.                |
+| `--virtual-host-path`          | `MAILDEV_VIRTUAL_HOST_PATH`   | Booléen, désactivé par défaut. Sélection UI/API par chemin ; fonctionne seul, exclusif avec `--virtual-host`.    |
 | `--domain-filter-rules <file>` | `MAILDEV_DOMAIN_FILTER_RULES` | Fichier JSON de règles `allow`/`deny` ordonnées, avec `*`, sur EHLO. La dernière règle correspondante l'emporte. |
 | `--auto-delete <hours>`        | `MAILDEV_AUTO_DELETE`         | Entier positif en heures ; `0` désactive. Nettoyage après restauration puis au plus toutes les heures.           |
 

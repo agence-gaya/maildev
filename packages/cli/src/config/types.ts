@@ -242,6 +242,14 @@ export interface MailDevConfig {
   virtualHost?: boolean
 
   /**
+   * Select the web/API virtual host from the URL path instead of HTTP Host
+   * Mutually exclusive with virtualHost; SMTP EHLO/HELO selection is unchanged
+   * CLI: --virtual-host-path
+   * Env: MAILDEV_VIRTUAL_HOST_PATH
+   */
+  virtualHostPath?: boolean
+
+  /**
    * Path to auto-relay rules file
    * CLI: --auto-relay-rules <file>
    */
@@ -350,5 +358,6 @@ export interface CLIOptions {
   logMailContents?: boolean
   mcp?: boolean
   virtualHost?: boolean
+  virtualHostPath?: boolean
   config?: string
 }

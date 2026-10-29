@@ -17,34 +17,13 @@ export function configureOptions(program: Command): void {
     // === SMTP Server Options ===
     // Note: defaults are NOT set here to allow env vars to work properly
     // Defaults are applied in config/merge.ts via getDefaultConfig()
-    .option(
-      '-s, --smtp <port>',
-      `SMTP port to listen on (default: ${DEFAULT_CONFIG.smtp})`
-    )
-    .option(
-      '--ip <address>',
-      `IP address to bind SMTP server (default: ${DEFAULT_CONFIG.ip})`
-    )
-    .option(
-      '--incoming-user <user>',
-      'SMTP authentication username'
-    )
-    .option(
-      '--incoming-pass <password>',
-      'SMTP authentication password'
-    )
-    .option(
-      '--incoming-secure',
-      'Enable TLS/SSL for SMTP server'
-    )
-    .option(
-      '--incoming-cert <path>',
-      'Path to TLS certificate for SMTP'
-    )
-    .option(
-      '--incoming-key <path>',
-      'Path to TLS key for SMTP'
-    )
+    .option('-s, --smtp <port>', `SMTP port to listen on (default: ${DEFAULT_CONFIG.smtp})`)
+    .option('--ip <address>', `IP address to bind SMTP server (default: ${DEFAULT_CONFIG.ip})`)
+    .option('--incoming-user <user>', 'SMTP authentication username')
+    .option('--incoming-pass <password>', 'SMTP authentication password')
+    .option('--incoming-secure', 'Enable TLS/SSL for SMTP server')
+    .option('--incoming-cert <path>', 'Path to TLS certificate for SMTP')
+    .option('--incoming-key <path>', 'Path to TLS key for SMTP')
     .option(
       '--hide-extensions <extensions>',
       'Comma-separated SMTP extensions to hide (STARTTLS,PIPELINING,8BITMIME,SMTPUTF8)'
@@ -55,72 +34,30 @@ export function configureOptions(program: Command): void {
     )
 
     // === Web/API Server Options ===
-    .option(
-      '-w, --web <port>',
-      `Web/API port to listen on (default: ${DEFAULT_CONFIG.web})`
-    )
+    .option('-w, --web <port>', `Web/API port to listen on (default: ${DEFAULT_CONFIG.web})`)
     .option(
       '--web-ip <address>',
       `IP address to bind web server (default: ${DEFAULT_CONFIG.webIp})`
     )
-    .option(
-      '--web-user <user>',
-      'Web interface HTTP basic auth username'
-    )
-    .option(
-      '--web-pass <password>',
-      'Web interface HTTP basic auth password'
-    )
+    .option('--web-user <user>', 'Web interface HTTP basic auth username')
+    .option('--web-pass <password>', 'Web interface HTTP basic auth password')
     .option(
       '--base-pathname <path>',
       `Base URL pathname for web interface (default: ${DEFAULT_CONFIG.basePathname})`
     )
-    .option(
-      '--disable-web',
-      'Disable web interface entirely'
-    )
-    .option(
-      '--https',
-      'Enable HTTPS for web server'
-    )
-    .option(
-      '--https-key <path>',
-      'Path to HTTPS private key file'
-    )
-    .option(
-      '--https-cert <path>',
-      'Path to HTTPS certificate file'
-    )
+    .option('--disable-web', 'Disable web interface entirely')
+    .option('--https', 'Enable HTTPS for web server')
+    .option('--https-key <path>', 'Path to HTTPS private key file')
+    .option('--https-cert <path>', 'Path to HTTPS certificate file')
 
     // === Outgoing/Relay Options ===
-    .option(
-      '--outgoing-host <host>',
-      'Outgoing relay SMTP host'
-    )
-    .option(
-      '--outgoing-port <port>',
-      'Outgoing relay SMTP port'
-    )
-    .option(
-      '--outgoing-user <user>',
-      'Outgoing relay SMTP username'
-    )
-    .option(
-      '--outgoing-pass <password>',
-      'Outgoing relay SMTP password'
-    )
-    .option(
-      '--outgoing-secure',
-      'Use TLS/SSL for outgoing relay'
-    )
-    .option(
-      '--auto-relay [email]',
-      'Enable auto-relay mode (optionally specify recipient email)'
-    )
-    .option(
-      '--auto-relay-rules <path>',
-      'Path to auto-relay rules JSON file'
-    )
+    .option('--outgoing-host <host>', 'Outgoing relay SMTP host')
+    .option('--outgoing-port <port>', 'Outgoing relay SMTP port')
+    .option('--outgoing-user <user>', 'Outgoing relay SMTP username')
+    .option('--outgoing-pass <password>', 'Outgoing relay SMTP password')
+    .option('--outgoing-secure', 'Use TLS/SSL for outgoing relay')
+    .option('--auto-relay [email]', 'Enable auto-relay mode (optionally specify recipient email)')
+    .option('--auto-relay-rules <path>', 'Path to auto-relay rules JSON file')
 
     // === Storage Options ===
     .option(
@@ -131,33 +68,25 @@ export function configureOptions(program: Command): void {
       '--max-emails <count>',
       `Maximum emails to keep; the oldest are discarded with their files (0 = unlimited) (default: ${DEFAULT_CONFIG.maxEmails})`
     )
-    .option('--virtual-host', 'Isolate inboxes by SMTP EHLO name and HTTP Host')
+    .option(
+      '--virtual-host',
+      'Isolate inboxes by SMTP EHLO name and HTTP Host (mutually exclusive with --virtual-host-path)'
+    )
+    .option(
+      '--virtual-host-path',
+      'Isolate inboxes by SMTP EHLO name and web/API URL path (mutually exclusive with --virtual-host)'
+    )
     .option('--auto-delete <hours>', 'Delete emails older than this many hours (0 disables it)')
     .option('--domain-filter-rules <file>', 'Path to SMTP EHLO domain filter rules JSON')
 
     // === Logging Options ===
-    .option(
-      '-v, --verbose',
-      'Enable verbose logging'
-    )
-    .option(
-      '--silent',
-      'Suppress all output'
-    )
-    .option(
-      '--log-mail-contents',
-      'Log JSON representation of received emails'
-    )
+    .option('-v, --verbose', 'Enable verbose logging')
+    .option('--silent', 'Suppress all output')
+    .option('--log-mail-contents', 'Log JSON representation of received emails')
 
     // === v3 New Options ===
-    .option(
-      '--mcp',
-      'Enable MCP server at /mcp endpoint'
-    )
-    .option(
-      '--config <path>',
-      'Path to configuration file'
-    )
+    .option('--mcp', 'Enable MCP server at /mcp endpoint')
+    .option('--config <path>', 'Path to configuration file')
 }
 
 /**
@@ -176,7 +105,8 @@ Environment Variables:
   MAILDEV_MAIL_DIRECTORY Directory for persisting emails
   MAILDEV_MAX_MESSAGE_SIZE Max accepted message size in bytes (default: 52428800)
   MAILDEV_MAX_EMAILS    Maximum emails to keep (0 = unlimited, the default)
-  MAILDEV_VIRTUAL_HOST  Isolate inboxes by SMTP EHLO name and HTTP Host
+  MAILDEV_VIRTUAL_HOST  Isolate inboxes by SMTP EHLO name and HTTP Host (mutually exclusive with MAILDEV_VIRTUAL_HOST_PATH)
+  MAILDEV_VIRTUAL_HOST_PATH Isolate inboxes by SMTP EHLO name and web/API URL path (mutually exclusive with MAILDEV_VIRTUAL_HOST)
   MAILDEV_AUTO_DELETE   Delete emails older than this many hours (0 disables it)
   MAILDEV_DOMAIN_FILTER_RULES Path to SMTP EHLO domain filter rules JSON
 `

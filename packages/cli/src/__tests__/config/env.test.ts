@@ -189,6 +189,30 @@ describe('loadEnvConfig', () => {
     expect(config.autoDelete).toBe(168)
     expect(config.domainFilterRules).toBe('/etc/maildev/rules/domain.json')
   })
+
+  it('should leave virtualHostPath unset when the env var is absent', () => {
+    delete process.env.MAILDEV_VIRTUAL_HOST_PATH
+
+    expect(loadEnvConfig().virtualHostPath).toBeUndefined()
+  })
+
+  it.each(['true', 'TRUE', 'TrUe', '1'])(
+    'should parse MAILDEV_VIRTUAL_HOST_PATH=%s as boolean true',
+    (value) => {
+      process.env.MAILDEV_VIRTUAL_HOST_PATH = value
+
+      expect(loadEnvConfig().virtualHostPath).toBe(true)
+    }
+  )
+
+  it.each(['false', 'FALSE', '0', '', 'yes'])(
+    'should parse MAILDEV_VIRTUAL_HOST_PATH=%s as boolean false',
+    (value) => {
+      process.env.MAILDEV_VIRTUAL_HOST_PATH = value
+
+      expect(loadEnvConfig().virtualHostPath).toBe(false)
+    }
+  )
 })
 
 describe('getEnvVarName', () => {
@@ -206,6 +230,10 @@ describe('getEnvVarName', () => {
 
   it('should return env var name for mailDirectory', () => {
     expect(getEnvVarName('mailDirectory')).toBe('MAILDEV_MAIL_DIRECTORY')
+  })
+
+  it('should return env var name for virtualHostPath', () => {
+    expect(getEnvVarName('virtualHostPath')).toBe('MAILDEV_VIRTUAL_HOST_PATH')
   })
 
   it('should return null for unmapped config keys', () => {

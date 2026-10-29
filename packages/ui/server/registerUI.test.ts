@@ -83,11 +83,56 @@ describe('registerUI', () => {
     })
   })
 
-  it("normalizes a base path with a trailing slash", async () => {
+  it('normalizes a base path with a trailing slash', async () => {
     const app = await buildServer('/mail/')
     const res = await app.inject({ method: 'GET', url: '/mail/', headers: { accept: 'text/html' } })
     expect(res.body).toContain('<base href="/mail/" />')
     expect(res.body).not.toContain('<base href="/mail//')
     await app.close()
   })
+
+  it.each(['', '/maildev', '/apps/mail'])(
+    'serves path-based inboxes and assets below %s',
+    async (basePath) => {
+      const app = Fastify()
+      await registerUI(app, { basePath, distPath, virtualHostPath: true })
+      await app.ready()
+      try {
+        for (const host of ['alpha.test', 'beta.test']) {
+          const page = await app.inject({
+            url: `${basePath}/${host}/`,
+            headers: { accept: 'text/html' },
+          })
+          expect(page.statusCode).toBe(200)
+          expect(page.body).toContain(`<base href="${basePath}/${host}/" />`)
+          expect(page.body).toContain(`<meta name="maildev-virtual-host" content="${host}" />`)
+          expect(page.body).toContain(
+            `<meta name="maildev-socket-path" content="${basePath}/socket.io" />`
+          )
+          const asset = await app.inject(`${basePath}/${host}/assets/app.js`)
+          expect(asset.statusCode).toBe(200)
+          expect(asset.body).toContain('console.log')
+          const index = await app.inject(`${basePath}/${host}/index.html`)
+          expect(index.body).toContain(`<base href="${basePath}/${host}/" />`)
+          const spa = await app.inject({
+            url: `${basePath}/${host}/inbox`,
+            headers: { accept: 'text/html' },
+          })
+          expect(spa.body).toContain(`<base href="${basePath}/${host}/" />`)
+          const redirect = await app.inject(`${basePath}/${host}?email=mail-123`)
+          expect(redirect.statusCode).toBe(302)
+          expect(redirect.headers.location).toBe(`${basePath}/${host}/?email=mail-123`)
+        }
+        const missing = await app.inject({ url: `${basePath}/`, headers: { accept: 'text/html' } })
+        expect(missing.statusCode).toBe(404)
+        const invalid = await app.inject({
+          url: `${basePath}/bad%2Fhost/`,
+          headers: { accept: 'text/html' },
+        })
+        expect(invalid.statusCode).toBe(400)
+      } finally {
+        await app.close()
+      }
+    }
+  )
 })

@@ -8,7 +8,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { MemoryStorage, FileStorage, VirtualHostStorage, type Storage } from '@maildev/core'
-import { createSMTPServer, type SMTPServer, type RelayConfig, type AutoRelayConfig, type RelayRule, type DomainFilterRule } from '@maildev/smtp'
+import {
+  createSMTPServer,
+  type SMTPServer,
+  type RelayConfig,
+  type AutoRelayConfig,
+  type RelayRule,
+  type DomainFilterRule,
+} from '@maildev/smtp'
 import { createAPIServer, type APIServer } from '@maildev/api'
 import { registerUI } from '@maildev/ui/server'
 import type { MailDevConfig } from '../config/types.js'
@@ -73,7 +80,7 @@ export class Orchestrator {
       mailDir,
       logger: this.config.verbose ? this.createSmtpLogger() : false,
     }
-    if (this.config.virtualHost) {
+    if (this.config.virtualHost || this.config.virtualHostPath) {
       smtpOptions.virtualHost = true
     }
     if (this.config.autoDelete !== undefined) {
@@ -164,7 +171,8 @@ export class Orchestrator {
     // 8. Create and start API server (unless disabled)
     if (!this.config.disableWeb) {
       // Normalize basePath: '/' should become empty string, remove trailing slashes
-      const basePath = this.config.basePathname === '/' ? '' : this.config.basePathname.replace(/\/$/, '')
+      const basePath =
+        this.config.basePathname === '/' ? '' : this.config.basePathname.replace(/\/$/, '')
 
       const apiOptions: Parameters<typeof createAPIServer>[0] = {
         port: this.config.web,
@@ -173,8 +181,11 @@ export class Orchestrator {
         storage: this.storage,
         smtp: this.smtp,
       }
-      if (this.config.virtualHost) {
+      if (this.config.virtualHost || this.config.virtualHostPath) {
         apiOptions.virtualHost = true
+      }
+      if (this.config.virtualHostPath) {
+        apiOptions.virtualHostPath = true
       }
       const webAuth = this.getWebAuth()
       if (webAuth) {
@@ -198,10 +209,15 @@ export class Orchestrator {
       this.api = createAPIServer(apiOptions)
 
       await this.api.registerPlugins()
-      await registerUI(this.api.server, { basePath })
+      await registerUI(this.api.server, {
+        basePath,
+        virtualHostPath: this.config.virtualHostPath ?? false,
+      })
       await this.api.listen()
       const apiAddress = this.api.getAddress()
-      this.logger.debug(`API server started on ${apiAddress?.host ?? this.config.webIp}:${apiAddress?.port ?? this.config.web}`)
+      this.logger.debug(
+        `API server started on ${apiAddress?.host ?? this.config.webIp}:${apiAddress?.port ?? this.config.web}`
+      )
     }
 
     this.running = true
@@ -276,7 +292,7 @@ export class Orchestrator {
   private async createStorage(): Promise<Storage> {
     const maxEmails = this.config.maxEmails
 
-    if (this.config.virtualHost) {
+    if (this.config.virtualHost || this.config.virtualHostPath) {
       if (this.config.mailDirectory) {
         this.logger.debug(`Using virtual-host file storage: ${this.config.mailDirectory}`)
         return new VirtualHostStorage({

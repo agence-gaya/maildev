@@ -198,6 +198,13 @@ export function validateConfig(config: MailDevConfig): ValidationResult {
     if (rulesError) errors.push(rulesError)
   }
 
+  if (config.virtualHost && config.virtualHostPath) {
+    errors.push({
+      field: 'virtualHostPath',
+      message: 'virtualHost and virtualHostPath are mutually exclusive',
+    })
+  }
+
   // Warnings
   if (config.smtp === config.web) {
     warnings.push('SMTP and Web ports are the same - this may cause conflicts')
