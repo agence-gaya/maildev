@@ -47,6 +47,37 @@ describe('loadMailsFromDirectory', () => {
     expect(emails[0]?.subject).toBe('The ex-presidents are surfers')
   })
 
+  it('restores the historical SMTP envelope from an .evl file', async () => {
+    const envelope = {
+      from: { address: 'test@test1.maildev.local', args: false },
+      to: [{ address: 'jliebert@gaya.fr', args: false }],
+      host: 'test1.maildev.local',
+      remoteAddress: '172.17.13.1',
+    }
+    await writeFile(join(mailDir, 'legacy.eml'), EML)
+    await writeFile(join(mailDir, 'legacy.evl'), JSON.stringify(envelope))
+
+    await server.loadMailsFromDirectory()
+
+    expect((await storage.getById('legacy'))?.envelope).toEqual(envelope)
+  })
+
+  it('falls back to the parsed message when an .evl file is corrupt', async () => {
+    await writeFile(join(mailDir, 'corrupt.eml'), EML)
+    await writeFile(join(mailDir, 'corrupt.evl'), '{invalid json')
+    await writeFile(join(mailDir, 'invalid-shape.eml'), EML)
+    await writeFile(join(mailDir, 'invalid-shape.evl'), JSON.stringify({ from: 'bad', to: [] }))
+
+    await server.loadMailsFromDirectory()
+
+    for (const id of ['corrupt', 'invalid-shape']) {
+      const email = await storage.getById(id)
+      expect(email?.envelope.from).toEqual({ address: 'angelo.pappas@fbi.gov' })
+      expect(email?.envelope.to).toEqual([{ address: 'johnny.utah@fbi.gov' }])
+      expect(email?.envelope.remoteAddress).toBe('restored')
+    }
+  })
+
   it('ignores non-.eml files', async () => {
     await writeFile(join(mailDir, 'notes.txt'), 'not an email')
     await writeFile(join(mailDir, 'valid.eml'), EML)

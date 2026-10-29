@@ -100,6 +100,7 @@ export class FileStorage extends MemoryStorage {
         (entry) =>
           entry.isDirectory() ||
           entry.name.endsWith('.eml') ||
+          entry.name.endsWith('.evl') ||
           entry.name.endsWith('.meta.json')
       )
 
@@ -233,6 +234,7 @@ export class FileStorage extends MemoryStorage {
   private async removeEmailFiles(id: string): Promise<void> {
     try {
       await rm(this.getEmailPath(id), { force: true })
+      await rm(join(this.mailDirectory, `${id}.evl`), { force: true })
       await rm(this.getAttachmentDirectory(id), { recursive: true, force: true })
       await rm(this.getMetadataPath(id), { force: true })
     } catch {

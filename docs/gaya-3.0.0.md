@@ -23,9 +23,9 @@ fichiers `lib/*.js`.
 | `7b8cce4` | Distinguer filtrage et véritable erreur de relais | Principe couvert : aucun destinataire après filtrage n'est pas traité comme une erreur SMTP. Les formats de logs v3 sont conservés. |
 | `74d3911` | Diagnostics de restauration | Déjà présents en v3, avec poursuite du chargement après un fichier illisible. |
 | `f7c9de1` | Refactorisation et gestion d'erreurs v2 | Ancien code remplacé par l'architecture async/await v3. |
-| `0829749` | Message sans `From` et enveloppe persistée | L'absence de `From` est gérée en v3 et couverte par un test de restauration. Voir la réserve sur le format historique ci-dessous. |
+| `0829749` | Message sans `From` et enveloppe persistée | L'absence de `From` reste gérée ; les enveloppes SMTP sont conservées dans des `.evl` et restaurées, y compris pour les messages sans `From`. |
 | `2b5f05e` | Modernisation Docker/Compose | Remplacée par le Dockerfile multi-stage v3, dont la cible `prod` reste utilisable. |
-| `1a2f56c` | JSON d'enveloppe invalide | Le nouveau sidecar `.meta.json` illisible est ignoré sans bloquer les messages ; cas testé. Les anciens `.evl` ne sont plus lus par v3. |
+| `1a2f56c` | JSON d'enveloppe invalide | Un `.evl` absent ou invalide est ignoré sans bloquer la restauration depuis le `.eml` ; les métadonnées de relais `.meta.json` gardent leur propre repli. |
 | `f48365d` | Échec du serveur relais distant | Le traitement v3 était incomplet : l'événement d'erreur ne rejetait pas la connexion. Corrigé ici, avec fermeture du flux brut et test d'erreur HTTP sans modification du message. |
 | `b24dae4` | Compatibilité de l'ancienne API interne | Anciennes interfaces remplacées par les paquets v3 ; les appels ont été adaptés à leurs nouvelles signatures. |
 | `f0a0d1a` | Relais depuis un virtualhost | Réintroduit : recherche, source brute et état de relais utilisent le même compartiment d'hôte. |
@@ -75,12 +75,12 @@ Deux différences à prendre en compte avant le déploiement :
    plus l'interface : la v3 sert l'application React compilée de `@maildev/ui`.
    Retirer ce montage ou reporter ses personnalisations dans `packages/ui`.
    Le Compose du projet parent n'a pas été modifié par ce portage.
-2. Les `.eml` des dossiers de domaine sont restaurés. Comme dans l'amont v3,
-   l'enveloppe est reconstruite depuis les en-têtes MIME ; les anciens fichiers
-   `.evl` du fork sont ignorés. Les informations uniquement présentes dans
-   l'enveloppe SMTP historique (par exemple des destinataires BCC absents des
-   en-têtes) ne sont pas migrées automatiquement. Sauvegarder le volume avant
-   bascule si ces informations doivent être conservées.
+2. Les `.eml` et leurs `.evl` sont restaurés ensemble. Les `.evl` historiques
+   conservent l'enveloppe SMTP (IP cliente, virtualhost et destinataires BCC) ;
+   les nouvelles réceptions en écrivent également. Si un `.evl` manque ou est
+   invalide, MailDev retombe sur les en-têtes du `.eml`. Les `.meta.json` restent
+   réservés à l'état du relais et ne sont créés que lorsqu'il y a des données de
+   relais à conserver.
 
 ## Vérification
 

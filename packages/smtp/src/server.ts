@@ -517,9 +517,12 @@ export class SMTPServer extends EventEmitter {
 
       const parsedChunk = await mapLimit(chunk, FS_CONCURRENCY, async (file) => {
         try {
-          const data = await readFile(join(mailDir, `${file.id}.eml`), 'utf8')
+          const [data, envelope] = await Promise.all([
+            readFile(join(mailDir, `${file.id}.eml`), 'utf8'),
+            readStoredEnvelope(join(mailDir, `${file.id}.evl`)),
+          ])
           this.logger.log('Restoring email:', file.id)
-          return { id: file.id, parsed: await parseEmailBuffer(data) }
+          return { id: file.id, parsed: await parseEmailBuffer(data), envelope }
         } catch (err) {
           this.logger.error(`Error restoring email ${file.id}:`, err)
           return null
@@ -531,15 +534,18 @@ export class SMTPServer extends EventEmitter {
           continue
         }
 
-        const { id, parsed } = entry
+        const { id, parsed, envelope: storedEnvelope } = entry
 
-        // Build envelope from parsed headers
-        const envelope: StoredEnvelope = {
-          from: parsed.from?.[0] ? { address: parsed.from[0].address } : false,
-          to: (parsed.to || []).map((addr) => ({ address: addr.address })),
-          host: host ?? 'restored',
-          remoteAddress: 'restored',
-        }
+        // Prefer the SMTP envelope; headers cannot restore BCC recipients or
+        // connection details. A virtual inbox's directory is authoritative.
+        const envelope: StoredEnvelope = storedEnvelope
+          ? { ...storedEnvelope, host: host ?? storedEnvelope.host ?? 'restored' }
+          : {
+              from: parsed.from?.[0] ? { address: parsed.from[0].address } : false,
+              to: (parsed.to || []).map((addr) => ({ address: addr.address })),
+              host: host ?? 'restored',
+              remoteAddress: 'restored',
+            }
 
         try {
           // Restore any metadata persisted alongside the .eml.
@@ -828,6 +834,13 @@ export class SMTPServer extends EventEmitter {
       remoteAddress: session.remoteAddress,
     }
 
+    try {
+      await writeFile(join(mailDir, `${id}.evl`), JSON.stringify(envelope), 'utf8')
+    } catch (err) {
+      await this.removeEmailFiles(id, host, mailDir)
+      throw err
+    }
+
     // Save email to storage
     const storage = this.storageForHost(host)
     await storage.initialize()
@@ -981,15 +994,17 @@ export class SMTPServer extends EventEmitter {
    */
   private toEnvelopeAddress(
     addr: EnvelopeAddress | { address: string; args?: boolean | Record<string, unknown> } | false
-  ): { address: string; args?: boolean | Record<string, unknown> } {
+  ): { address: string; name?: string; args?: boolean | Record<string, unknown> } {
     if (addr === false) {
       return { address: '' }
     }
-    // Only include args if it's truthy (not false or undefined)
-    const result: { address: string; args?: boolean | Record<string, unknown> } = {
+    const result: { address: string; name?: string; args?: boolean | Record<string, unknown> } = {
       address: addr.address,
     }
-    if (addr.args) {
+    if ('name' in addr && typeof addr.name === 'string' && addr.name) {
+      result.name = addr.name
+    }
+    if (addr.args !== undefined) {
       result.args = addr.args as boolean | Record<string, unknown>
     }
     return result
@@ -1146,6 +1161,12 @@ export class SMTPServer extends EventEmitter {
     }
 
     try {
+      await rm(join(mailDir, `${id}.evl`), { force: true })
+    } catch (err) {
+      this.logger.error('Error deleting envelope file:', err)
+    }
+
+    try {
       await rm(getAttachmentDir(mailDir, id), { recursive: true, force: true })
     } catch {
       // Directory may not exist
@@ -1158,4 +1179,42 @@ export class SMTPServer extends EventEmitter {
  */
 export function createSMTPServer(options: SMTPServerOptions): SMTPServer {
   return new SMTPServer(options)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isEnvelopeAddress(value: unknown): value is EnvelopeAddress {
+  if (!isRecord(value) || typeof value.address !== 'string') {
+    return false
+  }
+
+  const name = value.name
+  const args = value.args
+  return (name === undefined || typeof name === 'string') && (
+    args === undefined || args === false || (
+      isRecord(args) && Object.values(args).every(
+        (arg) => typeof arg === 'string' || typeof arg === 'boolean'
+      )
+    )
+  )
+}
+
+function isStoredEnvelope(value: unknown): value is StoredEnvelope {
+  return isRecord(value) &&
+    (value.from === false || isEnvelopeAddress(value.from)) &&
+    Array.isArray(value.to) && value.to.every(isEnvelopeAddress) &&
+    (value.host === undefined || typeof value.host === 'string') &&
+    (value.remoteAddress === undefined || typeof value.remoteAddress === 'string')
+}
+
+async function readStoredEnvelope(filePath: string): Promise<StoredEnvelope | null> {
+  try {
+    const value: unknown = JSON.parse(await readFile(filePath, 'utf8'))
+    return isStoredEnvelope(value) ? value : null
+  } catch {
+    // Missing or corrupt envelope metadata should not block restoring the .eml.
+    return null
+  }
 }

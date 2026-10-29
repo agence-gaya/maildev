@@ -32,6 +32,7 @@ describe('FileStorage', () => {
   /** Stand in for the .eml file and attachments the SMTP server would write */
   async function writeEmailFiles(id: string): Promise<void> {
     await writeFile(join(mailDirectory, `${id}.eml`), `Subject: ${id}\n\nbody`)
+    await writeFile(join(mailDirectory, `${id}.evl`), '{}')
     await mkdir(join(mailDirectory, id), { recursive: true })
     await writeFile(join(mailDirectory, id, 'attachment.txt'), 'contents')
   }
@@ -58,6 +59,7 @@ describe('FileStorage', () => {
       expect(await storage.delete('drop')).toBe(true)
 
       expect(existsSync(join(mailDirectory, 'drop.eml'))).toBe(false)
+      expect(existsSync(join(mailDirectory, 'drop.evl'))).toBe(false)
       expect(existsSync(join(mailDirectory, 'drop'))).toBe(false)
       expect(existsSync(join(mailDirectory, 'keep.eml'))).toBe(true)
     })
@@ -102,6 +104,7 @@ describe('FileStorage', () => {
       await writeEmailFiles('third')
 
       expect(existsSync(join(mailDirectory, 'first.eml'))).toBe(false)
+      expect(existsSync(join(mailDirectory, 'first.evl'))).toBe(false)
       expect(existsSync(join(mailDirectory, 'first'))).toBe(false)
       expect(existsSync(join(mailDirectory, 'second.eml'))).toBe(true)
       expect(existsSync(join(mailDirectory, 'third.eml'))).toBe(true)
