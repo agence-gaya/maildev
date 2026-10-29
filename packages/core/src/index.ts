@@ -17,6 +17,7 @@ export type {
   Envelope,
   EmailPriority,
   Email,
+  EmailHeader,
   EmailInput,
   EmailSummary,
   EmailMetadata,

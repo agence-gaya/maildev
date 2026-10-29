@@ -154,7 +154,13 @@ export function EmailContent({ email }: EmailContentProps) {
           <HtmlContent html={htmlContent || email.html} viewport={viewport} />
         )}
         {activeTab === 'text' && <TextContent text={email.text} />}
-        {activeTab === 'headers' && <HeadersContent headers={email.headers} />}
+        {activeTab === 'headers' && (
+          <HeadersContent
+            headers={email.headers}
+            headerLines={email.headerLines}
+            envelope={email.envelope}
+          />
+        )}
         {activeTab === 'source' && <SourceContent source={sourceContent} />}
       </div>
     </div>
@@ -450,37 +456,128 @@ function TextContent({ text }: { text: string | undefined }) {
   )
 }
 
-function HeadersContent({ headers }: { headers?: Record<string, string | string[]> }) {
-  if (!headers || Object.keys(headers).length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center text-[hsl(var(--muted-foreground))]">
-        No headers available
-      </div>
-    )
-  }
-
-  const sortedHeaders = Object.entries(headers).sort(([a], [b]) =>
-    a.toLowerCase().localeCompare(b.toLowerCase())
-  )
+function HeadersContent({
+  headers,
+  headerLines,
+  envelope,
+}: {
+  headers?: Record<string, string | string[]>
+  headerLines?: Email['headerLines']
+  envelope: Email['envelope']
+}) {
+  const messageHeaders =
+    headerLines && headerLines.length > 0
+      ? headerLines
+      : Object.entries(headers ?? {}).map(([name, value]) => ({ name, value }))
 
   return (
-    <div className="p-4">
-      <table className="w-full text-sm">
-        <tbody>
-          {sortedHeaders.map(([key, value]) => (
-            <tr key={key} className="border-b border-[hsl(var(--border))]">
+    <div className="space-y-6 p-4">
+      <section aria-labelledby="message-headers-heading">
+        <h3
+          id="message-headers-heading"
+          className="mb-2 text-sm font-semibold text-[hsl(var(--foreground))]"
+        >
+          Message headers
+        </h3>
+        {messageHeaders.length > 0 ? (
+          <table aria-label="Message headers" className="w-full text-sm">
+            <tbody>
+              {messageHeaders.map(({ name, value }, index) => (
+                <tr key={`${name}-${index}`} className="border-b border-[hsl(var(--border))]">
+                  <td className="py-2 pr-4 font-medium text-[hsl(var(--foreground))] align-top whitespace-nowrap">
+                    {name}
+                  </td>
+                  <td className="py-2 text-[hsl(var(--muted-foreground))] break-all font-mono text-xs">
+                    {Array.isArray(value) ? value.join(', ') : value}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="text-sm text-[hsl(var(--muted-foreground))]">
+            No message headers available
+          </p>
+        )}
+      </section>
+
+      <section aria-labelledby="smtp-envelope-heading">
+        <h3
+          id="smtp-envelope-heading"
+          className="mb-2 text-sm font-semibold text-[hsl(var(--foreground))]"
+        >
+          SMTP envelope
+        </h3>
+        <table aria-label="SMTP envelope" className="w-full text-sm">
+          <tbody>
+            <tr className="border-b border-[hsl(var(--border))]">
               <td className="py-2 pr-4 font-medium text-[hsl(var(--foreground))] align-top whitespace-nowrap">
-                {key}
+                MAIL FROM
               </td>
               <td className="py-2 text-[hsl(var(--muted-foreground))] break-all font-mono text-xs">
-                {Array.isArray(value) ? value.join(', ') : value}
+                {formatEnvelopeAddress(envelope.from)}
               </td>
             </tr>
-          ))}
-        </tbody>
-      </table>
+            {envelope.to.length > 0 ? (
+              envelope.to.map((recipient, index) => (
+                <tr
+                  key={`${recipient.address}-${index}`}
+                  className="border-b border-[hsl(var(--border))]"
+                >
+                  <td className="py-2 pr-4 font-medium text-[hsl(var(--foreground))] align-top whitespace-nowrap">
+                    RCPT TO {envelope.to.length > 1 ? index + 1 : ''}
+                  </td>
+                  <td className="py-2 text-[hsl(var(--muted-foreground))] break-all font-mono text-xs">
+                    {formatEnvelopeAddress(recipient)}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr className="border-b border-[hsl(var(--border))]">
+                <td className="py-2 pr-4 font-medium text-[hsl(var(--foreground))] align-top whitespace-nowrap">
+                  RCPT TO
+                </td>
+                <td className="py-2 text-[hsl(var(--muted-foreground))] font-mono text-xs">
+                  &lt;none&gt;
+                </td>
+              </tr>
+            )}
+            {envelope.host !== undefined && (
+              <tr className="border-b border-[hsl(var(--border))]">
+                <td className="py-2 pr-4 font-medium text-[hsl(var(--foreground))] align-top whitespace-nowrap">
+                  EHLO
+                </td>
+                <td className="py-2 text-[hsl(var(--muted-foreground))] break-all font-mono text-xs">
+                  {envelope.host}
+                </td>
+              </tr>
+            )}
+            {envelope.remoteAddress !== undefined && (
+              <tr className="border-b border-[hsl(var(--border))]">
+                <td className="py-2 pr-4 font-medium text-[hsl(var(--foreground))] align-top whitespace-nowrap">
+                  Remote address
+                </td>
+                <td className="py-2 text-[hsl(var(--muted-foreground))] break-all font-mono text-xs">
+                  {envelope.remoteAddress}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </section>
     </div>
   )
+}
+
+function formatEnvelopeAddress(address: Email['envelope']['from']): string {
+  const formattedAddress = address.address || '<>'
+  if (address.args === undefined) {
+    return formattedAddress
+  }
+
+  const args =
+    typeof address.args === 'object' ? JSON.stringify(address.args) : String(address.args)
+  return `${formattedAddress} (args: ${args})`
 }
 
 function SourceContent({ source }: { source: string | undefined }) {

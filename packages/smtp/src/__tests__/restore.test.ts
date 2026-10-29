@@ -45,6 +45,15 @@ describe('loadMailsFromDirectory', () => {
     expect(emails).toHaveLength(1)
     expect(emails[0]?.id).toBe('abc12345')
     expect(emails[0]?.subject).toBe('The ex-presidents are surfers')
+    expect(emails[0]?.headerLines?.map(({ name }) => name)).toEqual([
+      'From',
+      'To',
+      'Subject',
+      'Message-ID',
+      'Date',
+      'MIME-Version',
+      'Content-Type',
+    ])
   })
 
   it('restores the historical SMTP envelope from an .evl file', async () => {

@@ -85,7 +85,13 @@ Deux différences à prendre en compte avant le déploiement :
    anciens déjà écrasés ne peuvent pas être reconstitués. Au chargement, un `.evl`
    ou `.meta.json` sans fichier `.eml` régulier correspondant dans son répertoire
    est supprimé ; cette vérification est faite même si le message ne fait pas
-   partie de la sélection `maxEmails`.
+   partie de la sélection `maxEmails`. L'onglet `Headers` de l'interface affiche
+   séparément les en-têtes MIME et l'enveloppe SMTP restaurée du `.evl` : expéditeur,
+   destinataires SMTP (dont les BCC), arguments, virtualhost et IP cliente si disponibles.
+   Les en-têtes MIME sont extraits des lignes originales du message, ce qui conserve
+   leur ordre, ainsi que `From`, `To`, `Date`, la casse des noms, les valeurs répétées
+   et les en-têtes repliés. Les anciens messages sans cette liste conservent l'ordre
+   disponible dans leur objet d'en-têtes, sans tri supplémentaire.
 3. Les mises à jour du sidecar sont sérialisées dans le processus et écrites dans
    un fichier temporaire synchronisé avant son renommage atomique ; cela évite les
    pertes et JSON partiels quand plusieurs utilisateurs relaient simultanément.

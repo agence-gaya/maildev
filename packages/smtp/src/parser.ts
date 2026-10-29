@@ -5,7 +5,13 @@
  */
 
 import { simpleParser } from 'mailparser'
-import type { ParsedMail, Attachment as MailparserAttachment, AddressObject, EmailAddress } from 'mailparser'
+import type {
+  ParsedMail,
+  Attachment as MailparserAttachment,
+  AddressObject,
+  EmailAddress,
+} from 'mailparser'
+import type { EmailHeader } from '@maildev/core'
 import { createReadStream } from 'node:fs'
 import type { Readable } from 'node:stream'
 import { normalizeContentId } from './attachments.js'
@@ -45,6 +51,8 @@ export async function parseEmailBuffer(source: Buffer | string): Promise<ParsedE
  * Transform mailparser output to our internal ParsedEmail format
  */
 function transformParsedMail(parsed: ParsedMail): ParsedEmail {
+  const headerLines = transformHeaderLines(parsed.headerLines)
+
   return {
     subject: parsed.subject,
     from: transformAddressObject(parsed.from),
@@ -54,7 +62,8 @@ function transformParsedMail(parsed: ParsedMail): ParsedEmail {
     date: parsed.date,
     html: parsed.html || undefined,
     text: parsed.text,
-    headers: transformHeaders(parsed.headers),
+    headers: transformHeaders(headerLines),
+    headerLines,
     messageId: parsed.messageId,
     inReplyTo: parsed.inReplyTo,
     priority: parsed.priority,
@@ -63,35 +72,53 @@ function transformParsedMail(parsed: ParsedMail): ParsedEmail {
 }
 
 /**
- * Transform headers map, filtering out non-string values
+ * Transform original header lines, preserving their order, names, and repetitions
  */
-function transformHeaders(headers: ParsedMail['headers']): Map<string, string | string[]> | undefined {
-  if (!headers) {
-    return undefined
+function transformHeaderLines(headerLines: ParsedMail['headerLines']): EmailHeader[] {
+  const result: EmailHeader[] = []
+  for (const header of headerLines ?? []) {
+    const separatorIndex = header.line.indexOf(':')
+    if (separatorIndex === -1) {
+      continue
+    }
+
+    const key = header.line.slice(0, separatorIndex).trim()
+    if (!key) {
+      continue
+    }
+    const value = header.line
+      .slice(separatorIndex + 1)
+      .replace(/\r?\n[\t ]+/g, ' ')
+      .trim()
+    result.push({ name: key, value })
   }
 
+  return result
+}
+
+/**
+ * Transform original header lines to the legacy grouped map format
+ */
+function transformHeaders(headerLines: EmailHeader[]): Map<string, string | string[]> {
   const result = new Map<string, string | string[]>()
-  headers.forEach((value, key) => {
-    // Only keep string values, skip Date and other types
-    if (typeof value === 'string') {
-      result.set(key, value)
-    } else if (Array.isArray(value)) {
-      // Filter array to only include strings
-      const stringValues = value.filter((v): v is string => typeof v === 'string')
-      if (stringValues.length > 0) {
-        result.set(key, stringValues)
-      }
+  for (const { name, value } of headerLines) {
+    const existing = result.get(name)
+    if (existing === undefined) {
+      result.set(name, value)
+    } else if (Array.isArray(existing)) {
+      existing.push(value)
+    } else {
+      result.set(name, [existing, value])
     }
-  })
+  }
+
   return result
 }
 
 /**
  * Transform address object (single) to array of addresses
  */
-function transformAddressObject(
-  addressObj: AddressObject | undefined
-): Address[] | undefined {
+function transformAddressObject(addressObj: AddressObject | undefined): Address[] | undefined {
   if (!addressObj) {
     return undefined
   }

@@ -2,7 +2,13 @@
  * @maildev/smtp - Type definitions
  */
 
-import type { Storage, Address, Email, EnvelopeAddress as CoreEnvelopeAddress } from '@maildev/core'
+import type {
+  Storage,
+  Address,
+  Email,
+  EmailHeader,
+  EnvelopeAddress as CoreEnvelopeAddress,
+} from '@maildev/core'
 
 // Re-export core types that we use
 export type { Email, Address }
@@ -147,6 +153,7 @@ export interface ParsedEmail {
   html?: string | undefined
   text?: string | undefined
   headers?: Map<string, string | string[]> | undefined
+  headerLines?: EmailHeader[] | undefined
   messageId?: string | undefined
   inReplyTo?: string | undefined
   priority?: 'high' | 'normal' | 'low' | undefined

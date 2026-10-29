@@ -6,6 +6,7 @@ export type {
   Envelope,
   EmailPriority,
   Email,
+  EmailHeader,
   RelayHistoryEntry,
   EmailInput,
   EmailSummary,

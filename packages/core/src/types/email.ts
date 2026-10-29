@@ -56,6 +56,12 @@ export interface RelayHistoryEntry {
   relayedTo: string[]
 }
 
+/** A single message header in its original order */
+export interface EmailHeader {
+  name: string
+  value: string
+}
+
 /**
  * Email priority level
  */
@@ -99,6 +105,8 @@ export interface Email {
   text?: string
   /** Raw email headers */
   headers: Record<string, string | string[]>
+  /** Raw email header lines, preserving their original order and repetitions */
+  headerLines?: EmailHeader[]
   /** Message-ID this email is replying to */
   inReplyTo?: string
   /** Email priority */

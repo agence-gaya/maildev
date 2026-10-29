@@ -983,6 +983,7 @@ export class SMTPServer extends EventEmitter {
       from: parsed.from || [],
       to: parsed.to || [],
       headers: this.headersToRecord(parsed.headers),
+      headerLines: parsed.headerLines ?? [],
       attachments: transformedAttachments,
       envelope: {
         from: this.toEnvelopeAddress(envelope.from),
